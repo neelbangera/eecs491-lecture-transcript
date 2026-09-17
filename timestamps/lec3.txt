@@ -1,0 +1,1639 @@
+[00:18] All right.
+[00:22] So this is where things are going to start to get pretty
+[00:25] interesting in the class.
+[00:28] And it's going to get a little deep in a hurry,
+[00:31] so sort of strap in.
+[00:34] Last time we talked about what is a distributed system? Well,
+[00:37] it's a collection of nodes connected together by a
+[00:39] communication network.
+[00:41] These nodes make progress at arbitrary rates.
+[00:44] They fail intermittently.
+[00:46] When they fail,
+[00:47] persistent data is retained,
+[00:48] transient data is lost, and failure doesn't include sort of
+[00:52] partial computations and partially correct answers.
+[00:56] If you ask a node a question, it either gives you the correct
+[00:59] answer or it doesn't answer at all.
+[01:02] The nodes are connected by networks.
+[01:04] Networks deliver messages at arbitrary speeds.
+[01:07] Networks are asymmetric.
+[01:08] So my path to you and your path to me are completely separate
+[01:12] and they fail intermittently.
+[01:14] So sometimes messages will get through,
+[01:16] sometimes they won't.
+[01:18] None of the failures in our system are considered to be
+[01:20] permanent. So, a failure is unbounded in
+[01:23] duration, but will eventually be repaired.
+[01:29] To handle node-to-node communication rather than
+[01:31] mucking around with sending individual messages out and
+[01:34] getting individual responses back and encoding data and doing
+[01:37] all of this stuff, we're going to rely on an abstraction in
+[01:40] 4.91 called RPC or Remote Procedure
+[01:42] Call.
+[01:44] And RPC abstracts away a bunch of networking details.
+[01:47] The one thing that it exposes to the programmer who's using it,
+[01:50] use it sort of like it was a function call,
+[01:53] but it does expose both endpoints and failures.
+[01:57] Every RPC operation,
+[02:00] it's not just usually,
+[02:01] includes some blocking IO, because at the very least, you
+[02:04] have to read the request off of the network.
+[02:07] And because there's some blocking IO in every single RPC
+[02:11] operation we could ever want to invoke,
+[02:13] we want to perform those operations concurrently.
+[02:15] And it's almost never just reading from IO.
+[02:18] So, we often have disk reads or disk writes or other network
+[02:22] communication.
+[02:23] There's something going on that will have the processor waiting
+[02:26] for something to happen.
+[02:29] So every RPCD method that's available is
+[02:35] potentially invocable concurrently and unfortunately
+[02:38] concurrency is really,
+[02:39] really messy.
+[02:42] So today we're going to get into some of the details for why is
+[02:45] concurrency messy.
+[02:46] This is going to be a slightly more messy model of
+[02:52] concurrency than you might see in some of the other classes we
+[02:56] have.
+[02:57] And the reason for that will become a little clearer later.
+[03:02] But then we'll have a model for reasoning about concurrency,
+[03:05] which is built upon what I will call the happens before
+[03:10] relationship. In other words,
+[03:12] we're going to have some model of our computation where the
+[03:17] events in the computation have a partial order.
+[03:21] So, some of the events are unordered relative to each
+[03:23] other, some of the events are ordered,
+[03:25] and the happens-before relationship is our way of being
+[03:28] able to guarantee that two events that happen in two
+[03:31] different Go routines happen in a particular order.
+[03:34] And not only do they happen in a particular order, but the
+[03:37] earlier events are visible to the later events.
+[03:39] And that turns out to be somewhat complicated to do
+[03:44] unless you have some high level mechanisms for synchronization
+[03:48] and in 4.91 we're going to rely primarily on
+[03:51] one mechanism which is Go's primary mechanism called the
+[03:55] channel.
+[03:57] The big idea if you've seen concurrent programming before,
+[04:01] you have probably seen it in the context where you have multiple
+[04:04] concurrent streams of execution interacting through some piece
+[04:09] of shared memory.
+[04:11] So one of those streams of execution writes to the shared
+[04:14] memory, some other stream of execution reads from it, and
+[04:17] that's how those things communicate.
+[04:19] There's this designated place in memory that they communicate
+[04:21] through.
+[04:23] And Go's philosophy is don't do that.
+[04:26] So you don't communicate by sharing memory,
+[04:29] you share memory by communicating.
+[04:32] And so the difference, it's sort of the difference between having
+[04:35] to go to one place and read and write notes in that one place
+[04:38] and mailing things around.
+[04:40] I'm sorry, it's okay.
+[04:42] And it turns out when you have the mailing things around model
+[04:44] in your head, that's both the model for how threads within a
+[04:49] single node will work or how go routines within a single node
+[04:52] will work and how individual nodes connect to one another.
+[04:56] You just use the same model which makes it much simpler to
+[04:59] think about.
+[05:01] Before I get started on today's material, does anyone have any
+[05:04] questions about anything we've talked about up until this
+[05:06] point.
+[05:08] Yes.
+[05:08] So, like, is that like part of the idiomatic go, or, like,
+[05:11] in this class? Yeah, it's very idiomatic go to not use shared
+[05:15] memory. That doesn't mean you don't,
+[05:17] and you will find go implementations of things in go
+[05:22] that do use shared memory and use mutual exclusion.
+[05:25] In 4.91, we will not be doing that.
+[05:30] One other side note,
+[05:32] this Saturday evening's little event at the Big House was an
+[05:35] outstanding
+[05:37] illustration of one of the core principles of this course.
+[05:43] That principle being if you ever find yourself asking what time
+[05:46] it is, you're doomed.
+[05:48] We'll get back to that, but I just want to sort of lay that
+[05:51] out there because There's a great picture from EMGO blog
+[05:55] that illustrates this problem.
+[06:00] Other questions?
+[06:02] All right.
+[06:04] So let's talk about the rules.
+[06:06] So this, let's start with how do programs work
+[06:09] if we don't have concurrency?
+[06:11] So 280,
+[06:12] 281,
+[06:13] 183,
+[06:15] Engine 101,
+[06:16] what do programs in those environments look like?
+[06:19] So you have a sequential block of code, the code executes from
+[06:23] beginning to end. There might be some loops or
+[06:25] some function calls, but the code has a path of execution.
+[06:29] And in a sequential block of code, and that's in a sequential
+[06:33] block of executing code,
+[06:35] events appear to happen one after the other in program
+[06:40] order.
+[06:41] Well, that doesn't sound surprising and it shouldn't
+[06:43] sound surprising.
+[06:44] In fact, it's probably something you just haven't really even
+[06:47] thought about.
+[06:48] But the rule is that any line of executing code must be able to
+[06:53] observe the effects of all prior lines of executed code.
+[06:58] And that's true even if you call functions.
+[07:00] So when you call a function f,
+[07:02] the body of f can observe all of the effects of all the lines
+[07:06] that were executed prior to the call of f.
+[07:08] And then when f returns,
+[07:10] all of the lines that execute subsequent to that call see all
+[07:13] of the effects of f's body. So, you have some global
+[07:15] variable,
+[07:16] you store some value in that global variable, you call f, f
+[07:19] can read that value and it's guaranteed to see it.
+[07:23] F might modify that value when f returns,
+[07:25] the code that called f will see the new value in the global,
+[07:28] right?
+[07:29] Not surprising,
+[07:30] and in fact you probably have never thought about this
+[07:34] because it just makes sense.
+[07:38] So, let's think about these three lines of code.
+[07:41] first x equals x plus 1,
+[07:43] 2y equals y times 2,
+[07:46] 3z equals x plus y.
+[07:48] So what do we know for sure?
+[07:50] What we know for sure is that line 3 observes the results of
+[07:55] lines 1 and 2 because line 3 reads from x that's written in
+[07:59] line 1 and line 2 reads from y that's written in line 2.
+[08:04] So what that means is the effects of lines 1 and 2 must
+[08:09] occur before line 3 can be executed,
+[08:13] whatever that means for how the processor works and how memory
+[08:16] works and how the machine works and if you've taken 370 you know
+[08:19] a little bit more about how that works if you've taken 470 you
+[08:22] know a lot more about how that works but that's the basic idea
+[08:27] that somehow the compiler and the and the machine and the
+[08:31] hardware have to to somehow conspire to make sure that line
+[08:36] 3 sees the results of lines 1 and 2.
+[08:42] But the language is completely free to reorder lines 1 and 2.
+[08:48] If the compiler thinks that it's more efficient to execute line 2
+[08:52] first, it's allowed to do that.
+[08:58] Now,
+[08:59] what if these lines of code are executed in concurrent streams
+[09:04] of execution? So there's one stream of execution that's going
+[09:08] to execute lines A1 and A2.
+[09:10] There's some other stream of execution that's going to
+[09:12] execute line B1.
+[09:15] And the basic idea is that from the point of view of the
+[09:19] compiler and the hardware, there are absolutely no rules about
+[09:24] what one sees from the other so one one stream of
+[09:30] execution can see any subset of the completed work from some
+[09:34] other stream of execution and there are just no rules at all
+[09:38] so what are the that line B1 can see.
+[09:49] Yes?
+[09:50] It could see the effects of x equals x plus one and y equals y
+[09:53] times two.
+[09:54] So it could see the effects of A1 and A2.
+[09:57] What else?
+[10:02] Yes?
+[10:02] It could see the effects of neither.
+[10:04] It could see the effects of? Neither.
+[10:05] Yeah, it could see neither A1 nor A2.
+[10:08] Even if A1 and A2 actually executed on a processor earlier.
+[10:13] It's possible that line B1 doesn't see either of those.
+[10:17] What else?
+[10:20] Only one of them.
+[10:21] Only one of them. Say more.
+[10:24] One of them could fail.
+[10:26] It's not that one of them could fail.
+[10:27] They'll both happen.
+[10:30] Which one of them would we see?
+[10:35] I'm not sure. No, that that's probably
+[10:38] correct.
+[10:39] Yes?
+[10:41] So if we're reading it as is, you might imagine that we see A1
+[10:45] and then B1 and then A2,
+[10:47] but in the previous slide you said that the compiler is free
+[10:50] to reorganize the lines of code if it's more,
+[10:53] you know, performant on the core to run them in a certain order.
+[10:57] So it could be that we see A2,
+[10:59] and then A1.
+[11:01] Right,
+[11:01] so you could see A1, but not A2. You could see both,
+[11:06] you could see neither,
+[11:08] you could see A2 but not A1.
+[11:11] So not only are you not guaranteed to see everything
+[11:14] that happened in the other stream of execution,
+[11:17] you're not even guaranteed to see what happened in the other
+[11:20] stream of execution in the order in which that stream of
+[11:23] execution believed it occurred.
+[11:27] There are literally no rules.
+[11:30] Yes? If you only see A2 and you don't see A1, won't the result
+[11:34] be incorrect?
+[11:35] Of course,
+[11:35] yeah,
+[11:36] absolutely.
+[11:37] Well,
+[11:38] let's talk about incorrect for a minute.
+[11:42] Because there's no guarantees about the relative order of B1,
+[11:48] then B1 is just going to pick up A value of X and A value of Y
+[11:52] from some point in the past.
+[11:56] That point could be even either immediately before this line
+[12:00] executes,
+[12:01] or it could be back in the dim history of time.
+[12:05] Because there are no guarantees about which versions of X and Y
+[12:09] line B1 will see,
+[12:11] it's not clear that we could say it's incorrect to see A2 but not
+[12:15] A1.
+[12:16] We might say that it's surprising,
+[12:19] but it's not incorrect from the point of view of the language
+[12:22] implementation or the hardware because the hardware and the
+[12:25] language implementation collectively don't give us any
+[12:29] guarantees.
+[12:30] It's very surprising to a typical programmer that doesn't
+[12:33] mean it's quote incorrect.
+[12:36] Yes?
+[12:36] I think A2 was like Y equals X times 2, so then that means A2
+[12:41] depends on A1,
+[12:43] so it can't really be executed before A1.
+[12:46] So what that means is that,
+[12:49] and I'm going to come back to this too, because I gave you a
+[12:53] slightly simplified version of what the compiler is allowed to
+[12:56] do.
+[12:57] So if A2 is Y equals Y times X,
+[13:01] let's say,
+[13:03] then from the point of view of A,
+[13:05] A2 must be able to see the effects of A1.
+[13:08] B is not guaranteed to see them in that order.
+[13:12] And that's because not only,
+[13:13] and I'm going to get to this, but basically the machine is not
+[13:17] one thing. The machine is a processor with
+[13:21] some fast memory and a larger bit of pretty fast memory and a
+[13:26] larger bit of not quite as fast memory and a really big, large
+[13:30] bunch of pretty slow memory.
+[13:33] And the compiler is sort of free to manage how data moves in and
+[13:38] out of each of those levels
+[13:40] through something called caching.
+[13:41] So if you've taken 370,
+[13:43] you know a lot about caching. If you haven't taken 370, that's
+[13:45] okay.
+[13:46] You don't need to know a lot about caching.
+[13:47] all you really need to know is that we're screwed,
+[13:50] right? We just don't have any guarantees.
+[13:56] So how can this be? And this is gonna be,
+[13:59] you may or may not,
+[14:00] I say remember,
+[14:01] this may not be something we've actually told you specifically.
+[14:05] I have thought about making 370 a prerequisite to 491.
+[14:10] It's really only for this slide that you would need it so if you
+[14:13] haven't taken 370,
+[14:15] let me explain the bit of 370 that you need to know right this
+[14:18] second.
+[14:19] So,
+[14:19] the way the processor works is the processor has some registers
+[14:23] local.
+[14:24] It fetches data from memory into those registers.
+[14:28] It performs some operations on those registers.
+[14:30] When it's done performing those operations, it writes the values
+[14:33] back.
+[14:35] But the values don't have to be written back after each line of
+[14:39] code.
+[14:42] So, if I'm going to do a bunch of different operations on X in
+[14:45] a row,
+[14:47] the compiler might decide to only write the last one back.
+[14:52] And in fact, it might not decide to write the last one back until
+[14:55] it needs that register for some other purpose.
+[14:58] So, if you've taken 483 and how compilers work,
+[15:01] then you know a lot about that, register coloring and
+[15:03] optimization and all kinds of other cool stuff.
+[15:06] You don't need to know any of that for the purposes of 491.
+[15:09] All you need to know is that the language is allowed to optimize
+[15:13] how it obtains values from memory and how it pushes values
+[15:18] back out to memory.
+[15:21] And it can optimize that in a way that if you have two
+[15:25] processors that have some shared memory between them,
+[15:28] this processor is not guaranteed to see the events of this
+[15:32] processor in the order they occur because it only sees the
+[15:35] events that make it all the way out to memory and the events
+[15:40] that make it out to memory can happen in any order the compiler
+[15:43] chooses
+[15:45] unless we tell the compiler not to.
+[15:50] Now,
+[15:50] so how many of you have ever used an actual debugger?
+[15:56] Something other than printf?
+[15:59] Okay, cool.
+[16:00] So one of the first things we tell you if you're using the
+[16:03] debugger is to compile it without optimizations on.
+[16:08] And the reason we tell you to do that is that it doesn't do this
+[16:10] reordering if you don't turn optimizations on.
+[16:13] This reordering only happens once you turn optimizations on.
+[16:18] But if you try and debug a language where you've got
+[16:22] or a program that's got optimizations on really, really
+[16:25] aggressively, it won't make sense because things will appear
+[16:28] to happen out of order as you're watching individual instructions
+[16:31] run.
+[16:34] So,
+[16:35] the stores to memory do not have to follow program order,
+[16:38] provided those observation rules are followed, as long as the
+[16:42] language can arrange that in any single stream of operation that
+[16:47] later events see the effects of earlier events, it doesn't
+[16:51] matter how it uses memory and the registers,
+[16:54] or for that matter,
+[16:55] the cache that sits between memory and registers and if
+[16:58] there's more than one level of that cache,
+[17:00] how it uses is all of that stuff.
+[17:02] It's completely free to reorder all of it.
+[17:08] So what this means is that concurrent code has no
+[17:12] observation rules at all.
+[17:17] Which actually makes,
+[17:17] if you've taken 42, the too much milk solution kind of
+[17:20] interesting,
+[17:21] because it doesn't work.
+[17:25] So how can this ever work?
+[17:28] And the way it ever works is that the hardware designers, and
+[17:32] if you've taken 470,
+[17:33] you've seen this,
+[17:34] but if you haven't, that's fine, I don't expect you to have,
+[17:37] because we're not really gonna build this stuff, we're just
+[17:39] gonna know that it exists,
+[17:41] right?
+[17:42] So the hardware designers have seen fit to provide us with
+[17:45] operations called memory barriers.
+[17:48] And this is a very loose definition of what these things
+[17:50] mean. 470 will actually tell you what
+[17:52] these things mean, this isn't quite it, but it's enough for us
+[17:55] to understand. And the first type of memory
+[17:59] barrier is the acquire.
+[18:01] An acquire says,
+[18:03] from this point forward,
+[18:04] even if we happen to have copies of data stored locally,
+[18:08] pretend that we don't have them anymore and go out to memory and
+[18:11] get them.
+[18:15] The other side of that is the release,
+[18:18] which says if you have stuff in the registers that hasn't been
+[18:23] written out to memory yet, write it all out to memory so that it
+[18:26] can be seen by somebody else.
+[18:30] So, we can see work between two exit streams of execution if it
+[18:36] is both observable,
+[18:38] namely,
+[18:39] we know it has been written to memory and we can guarantee it's
+[18:42] been written to memory with a release,
+[18:45] and observed,
+[18:47] and we can guarantee it's observed through an acquire.
+[18:51] So,
+[18:52] if two pieces of code, one wants to do some work in one stream of
+[18:57] execution that it wants some other stream of execution to
+[19:01] see,
+[19:02] it arranges to do the work,
+[19:04] issue a release,
+[19:05] the release forces things to be observable,
+[19:08] then somehow force the other stream of execution to issue and
+[19:12] acquire,
+[19:13] which then makes sure that that work is observed.
+[19:16] So,
+[19:16] work,
+[19:17] release,
+[19:18] acquire,
+[19:19] work,
+[19:19] that's the model.
+[19:21] If you can arrange for that to happen,
+[19:24] then you know that all of the work done up to the point of
+[19:28] release, and maybe some more, but at least the work up to the
+[19:31] release,
+[19:32] is visible to the point beyond the acquire.
+[19:35] Maybe some of it's visible earlier, we don't know,
+[19:38] but we know for sure that it's all visible after the acquire.
+[19:43] So after release,
+[19:44] all prior work is observable.
+[19:46] After acquire,
+[19:47] all observable work can be observed.
+[19:50] All right, great.
+[19:51] Yes, question.
+[19:52] Just to make sure,
+[19:54] these memory barriers,
+[19:55] this is a different part of a processor than the part that
+[19:59] allows for atomic operations.
+[20:01] This has nothing to do with atomicity.
+[20:03] Yeah,
+[20:04] no,
+[20:04] so this is not the read, modify, write instruction,
+[20:07] which by itself turns out not to be enough.
+[20:10] Unless it also includes memory barrier guarantees, which it
+[20:14] probably does.
+[20:15] But that's a 470 or maybe even a 570 thing.
+[20:19] Can we talk about the atomic read and modify write in 470?
+[20:22] I've never taken it.
+[20:25] Anyone taken 470?
+[20:28] Oh,
+[20:28] bummer.
+[20:29] Usually. Oh, yeah.
+[20:29] OK. So do we talk about atomic read,
+[20:31] modify, write with memory barriers in that class?
+[20:35] And it could be yes, no, and I don't remember.
+[20:37] No,
+[20:41] we don't.
+[20:42] Not unless we teach it differently since the last time
+[20:43] I taught it.
+[20:45] Which is possible, I haven't taught it in several years.
+[20:49] Yes.
+[20:50] I have a question.
+[20:52] How is the memory barrier different from Mutex?
+[20:56] Ah,
+[20:57] memory barriers don't block.
+[21:00] Okay. Memory barriers are just
+[21:02] instructions to the, they're essentially instructions to the
+[21:04] compiler
+[21:05] and then instructions to the hardware
+[21:08] about how to manage the cache.
+[21:10] So multiple processes could acquire?
+[21:12] Yeah, yeah, absolutely.
+[21:13] Yeah, yeah, yep.
+[21:14] So this model is for dealing with like,
+[21:17] you keep talking about like work is seen at this point versus
+[21:20] work can be seen at this point.
+[21:22] Is this all relating to like shared memory?
+[21:25] Yeah, well it's all going,
+[21:27] fundamentally you have to communicate through memory, It's
+[21:29] just the abstraction that you use to do it.
+[21:32] Go's abstraction is going to make this very clean, but I have
+[21:35] to build up to get there first.
+[21:37] So this is how?
+[21:38] This is how the hardware. So the hardware provides these
+[21:41] mechanisms
+[21:42] that language designers can use to build higher level
+[21:45] abstractions to make them work.
+[21:47] One of those higher level abstractions,
+[21:49] if you've taken 42,
+[21:50] is the mutex,
+[21:52] or the condition variable, or the semaphore.
+[21:55] There are some other higher level abstractions, like the
+[21:58] channel,
+[21:58] which is what we're going to use.
+[22:00] Those instructions are all a little bit different, but they
+[22:02] all basically do the same things.
+[22:05] Okay.
+[22:06] Professor?
+[22:07] Yes.
+[22:08] Why forget any copy we have?
+[22:10] Can that the observable work be observed?
+[22:13] So if we have, let's suppose we have a copy of X
+[22:19] in register one.
+[22:21] And some other thread has changed the value of X in
+[22:24] memory.
+[22:25] I don't know that the value of x has changed in memory because I
+[22:28] think I have a current copy of x.
+[22:30] If I issue an acquire,
+[22:32] that means I have to,
+[22:33] the next time I want to use x, I have to go all the way to memory
+[22:36] to get it.
+[22:39] Okay?
+[22:42] So barriers define the rules of visibility, but they don't
+[22:47] define the rules of order.
+[22:52] They just define what could be visible, but they don't provide
+[22:55] a guarantee.
+[22:56] So if I have two go routines,
+[22:58] foo is writing a value to v and then issues a release.
+[23:03] bar issues an acquire and then reads that value from v.
+[23:07] If bar's acquire happens after foo's release,
+[23:12] then bar will definitely read the new value in v.
+[23:18] However,
+[23:18] if bar's acquire occurs before foo's release,
+[23:21] then bar may or may not read the value.
+[23:24] We just don't have any guarantees about it.
+[23:27] So let's say may not.
+[23:30] So what do we do about this?
+[23:33] And what we do about this is that we need some other
+[23:35] mechanism and that mechanism is called synchronization.
+[23:40] Now we're not gonna talk about how it works.
+[23:42] If you wanna know how it works,
+[23:44] take 42.
+[23:45] 42 will teach you how to build it.
+[23:47] That's basically project two in 42,
+[23:51] okay?
+[23:51] I don't care how to build it. I just care that someone has
+[23:55] built it for me and now I get to use it.
+[23:59] So, let's talk about this for a minute.
+[24:01] How many of you have ever opened a door with a round doorknob?
+[24:07] That should be everybody in the room.
+[24:09] You've probably done that,
+[24:10] right?
+[24:11] How many of you have ever changed one of those?
+[24:15] Okay, a couple people have changed them.
+[24:18] So keep your hands up high,
+[24:19] the people who have changed them.
+[24:20] If you've changed them, how many of you have installed it
+[24:23] backwards at least once?
+[24:26] Everybody who's changed one, right.
+[24:28] So if you've changed a doorknob, you know how it works.
+[24:32] You know the internals, you know which way the ramp has to face,
+[24:37] and you know how the whole thing happens.
+[24:40] If you've entered a door,
+[24:42] do you know how it works?
+[24:44] Nope.
+[24:44] Probably not.
+[24:45] You know that you turn the doorknob and it opens.
+[24:48] You know that if you pull the door it closes.
+[24:50] How that happens,
+[24:52] maybe you've looked at, maybe you haven't, but you don't need
+[24:54] to know.
+[24:56] You do not need to know how this happens.
+[25:00] You just need to know that it exists.
+[25:05] You can know how it happens, but that's not my concern.
+[25:08] All right,
+[25:09] so the game of synchronization is as We have two events.
+[25:13] We have an event that we're gonna call before that happens
+[25:16] in go routine foo,
+[25:17] and we have an event called after in some go routine bar.
+[25:22] If before is synchronized with after,
+[25:27] that means that before includes a release operation,
+[25:33] after includes an acquire operation,
+[25:35] and before is guaranteed to happen prior to after.
+[25:41] So if bar is like ready to execute after,
+[25:46] but before hasn't happened yet,
+[25:50] after isn't going to happen until after bar happens,
+[25:53] and synchronization will guarantee that for us.
+[25:57] So no matter what the relative speeds of foo and bar are,
+[26:00] synchronization will force this order to occur.
+[26:03] Which means that the work that before,
+[26:06] that Fu did it before before is visible to Bar after after.
+[26:16] Okay, we need one more thing.
+[26:20] And this gets back to the question that whoever asked
+[26:22] about atomic operations.
+[26:24] Some operations have multiple steps.
+[26:29] And the later steps in that operation assume that the values
+[26:34] read in the earlier steps haven't changed.
+[26:38] So remember this problematic line.
+[26:41] Go fetch the value in val,
+[26:43] add one to it,
+[26:44] store it back in val.
+[26:46] That line is broken up into three steps.
+[26:49] Load the value at location val into R1,
+[26:51] increment R1,
+[26:53] store r1 into the location val.
+[26:59] Line three assumes that whatever value was loaded
+[27:05] in line one hasn't been changed.
+[27:09] Because if it has been changed, it invalidates the assumption of
+[27:12] line three.
+[27:19] Now how do we guarantee this?
+[27:25] So this is the problem, we have two different streams of
+[27:27] execution,
+[27:28] A1 fetches,
+[27:30] then while B1 is fetching, A2 is incrementing, while B2 is
+[27:34] incrementing, A1 is storing,
+[27:36] B3 is storing,
+[27:37] and line A3 invalidates the assumption at line B3, which
+[27:43] means our program is not behaving the way we might have
+[27:46] expected if we just read it.
+[27:51] The usual solution to this problem,
+[27:54] and the solution you will probably see in any other course
+[27:57] we teach on concurrency,
+[28:00] whether it's 484, 482,
+[28:02] I don't even know if 485 does this, I think it does but I'm
+[28:05] not sure,
+[28:06] but I know 42 and 44 do.
+[28:08] The usual solution to this problem is something called
+[28:11] mutual exclusion.
+[28:13] So So what if we could guarantee that this line in red never
+[28:19] executed in parallel with itself?
+[28:22] So that we never executed this line on two different cores at
+[28:26] the same time?
+[28:31] And that this line always included an acquire at the
+[28:34] beginning,
+[28:37] and always included a release at the end?
+[28:42] So we can either guarantee those three things.
+[28:44] No two copies of that line ever execute with each other.
+[28:49] Every single execution begins with an acquire and ends with a
+[28:53] release, and the acquire and the release don't overlap with
+[28:56] anything else.
+[28:57] So the entire run,
+[28:59] acquire,
+[29:00] execute the line, release,
+[29:01] that sequence of events never overlaps with any other set of
+[29:05] those sequence of events.
+[29:07] That's why it's called mutual exclusion.
+[29:09] These two copies of the code are mutually exclusive.
+[29:13] One can run, or the other can run, or neither can run, but you
+[29:16] can't have both running at the same time.
+[29:21] If you had that, this is what it would look like.
+[29:24] You do a fetch,
+[29:26] you increment,
+[29:26] you do a store,
+[29:27] then the other thread does a fetch, an increment, and a
+[29:30] store.
+[29:30] This one does a fetch, an increment, and a store,
+[29:33] and we keep going.
+[29:34] And if we could guarantee that, then we would never lose one of
+[29:36] these increments.
+[29:38] And when we were done, we would have four million,
+[29:41] which is what we wanted.
+[29:45] This is really good.
+[29:47] This is super cool.
+[29:48] You will eventually learn how to do this if you haven't learned
+[29:51] it yet.
+[29:51] You're not gonna learn how to do it in 491,
+[29:53] because it's bad,
+[29:55] but I'll come back to that. But it's good,
+[29:58] because it actually solves the problem.
+[30:01] Right,
+[30:01] so mutual exclusion is an annotation of code.
+[30:05] So it's something you have to write in your program to denote
+[30:09] which of the sections of the program are mutually exclusive.
+[30:14] And those annotations of code protects the use of mutable
+[30:18] shared state.
+[30:19] And if you've taken 42 from me,
+[30:22] and I think we still explain it the same way,
+[30:24] but the basic idea behind this annotation is we mark the
+[30:28] sensitive regions of code,
+[30:29] we have to start those sensitive regions before we access any
+[30:34] group of shared mutable state that's thought of as an entity.
+[30:40] We have to hold,
+[30:42] we have to make sure we hold that mutual exclusion property
+[30:46] while accessing that state or relying on any of its values
+[30:51] by assumption,
+[30:53] either implicitly or explicitly.
+[30:56] It's like we're later going to branch on a value.
+[30:59] We have to keep holding. and we have to make sure the
+[31:01] mutual exclusion ranges from the beginning all the way through
+[31:04] all of it.
+[31:07] So we have to start before accessing any shared state.
+[31:11] We can't end it until after the last use of that state, whether
+[31:15] it's explicit or implicit.
+[31:17] And implicit could just mean we're in a branch of a code that
+[31:20] was conditioned on that.
+[31:24] All right.
+[31:25] This is good, but it's not great.
+[31:28] Because it means the programmer has to identify and group shared
+[31:32] mutable state
+[31:34] that is thought of as one thing,
+[31:37] decide which regions access or rely upon that state,
+[31:42] annotate where all of those regions start,
+[31:46] and annotate where all of those regions stop.
+[31:49] All right,
+[31:49] how many of you have ever used a mutex in a program?
+[31:53] Keep your hands up.
+[31:55] How many of you have done that incorrectly?
+[31:59] Yeah,
+[32:00] I still get it wrong.
+[32:03] Right?
+[32:04] Because if even one region
+[32:07] is missing or too short,
+[32:10] then your program is incorrect.
+[32:13] There is some potential execution of your program that
+[32:17] will not behave the way you expected it to because you
+[32:22] either won't see work that somebody else did that you
+[32:25] expected to see, or some assumption you make about the
+[32:30] work got invalidated while you were in the middle of using it.
+[32:35] Now the problem with that is that it's pretty
+[32:41] easy to debug very wrong.
+[32:45] You run a program that's very wrong,
+[32:47] it's pretty evident that it's wrong.
+[32:50] Probably once.
+[32:52] Maybe you run it two or three times and it's really obvious
+[32:55] that it's wrong.
+[32:58] Almost exactly right is much harder.
+[33:03] Because almost exactly right almost never fails.
+[33:08] So when you're testing it, it almost always works.
+[33:12] All right, so I may have mentioned on the first day about
+[33:16] if I were in charge of computer science at Michigan,
+[33:19] none of you would own personal devices and you would have to
+[33:22] come into the labs and do work.
+[33:24] And the reason that that's true is that you would learn from
+[33:28] each other about how you do your work and that's actually really
+[33:31] useful.
+[33:34] And I think I mentioned my grad student office mate,
+[33:39] who is probably the best debugger I've ever met.
+[33:42] I watched him lose a year of his life chasing
+[33:48] down one of these because the failure
+[33:53] only happened about once a month.
+[33:57] It's a distributed file system,
+[33:59] it's a distributed file system in which we all stored our data,
+[34:03] the data got, he wrote the backup system for the
+[34:05] distributed file system.
+[34:07] It's pretty important you don't want to lose your data if the
+[34:09] server crashes
+[34:10] and the backup system would fail once a month.
+[34:15] Worse,
+[34:19] he was not the person who mis-annotated a region of code,
+[34:22] it was somebody else in the group.
+[34:25] And it took him a year to find it.
+[34:28] You do not want to be that person,
+[34:32] because I guarantee you he's still bitter about it.
+[34:35] All right,
+[34:41] not great.
+[34:44] So what do we do?
+[34:46] All right, so here's the problem.
+[34:48] The problem is that mutable shared state requires
+[34:52] synchronization in some form.
+[34:55] We just have to have it because we have to have this ordered
+[34:58] release and acquire so that one piece of concurrency can see
+[35:03] some other, the work that some other piece of concurrency did.
+[35:05] Otherwise,
+[35:06] they're not working together, they're just off doing stuff.
+[35:12] So making that safe, if the only way we know how to do
+[35:16] synchronization is mutual exclusion,
+[35:19] making it safe requires mutual exclusion.
+[35:22] In fact, if we're going to touch mutable shared state in
+[35:25] concurrent programs, we need mutual exclusion because there's
+[35:28] no other way to do it that we know of,
+[35:30] if we're touching shared mutable state.
+[35:33] Mutual exclusion is really hard to get right.
+[35:36] Even if you've been doing this a really long time,
+[35:41] and I still sometimes get it wrong.
+[35:44] I will tell you, even Professor Chen sometimes gets it wrong.
+[35:48] He's way better than me.
+[35:52] So, the answer to this problem is don't do that.
+[35:58] If it hurts to hit yourself in the head,
+[36:00] stop hitting yourself in the head.
+[36:05] All right,
+[36:06] how do we avoid shared mutable state?
+[36:08] There are only two ways to do it.
+[36:11] The first way is don't make it mutable.
+[36:13] How many of you have ever written code in a functional
+[36:15] programming language?
+[36:17] Right, so if you've written code in a functional programming
+[36:19] language,
+[36:20] this turns out to be pretty easy because one of the things that
+[36:22] you cannot do in a functional programming language is change
+[36:25] the value of something.
+[36:27] You can only create new values out of old values.
+[36:29] Since nothing ever changes,
+[36:32] nothing's ever mutable,
+[36:34] and so you never have this problem.
+[36:36] If you see the state, you see it, it doesn't ever change.
+[36:39] Now that also means you're never allowed to write x equals y in
+[36:45] the code, and if We've never done that before.
+[36:48] It's actually kind of weird to wrap your head around it, and
+[36:50] there aren't very many people who know how to do that well.
+[36:55] The other way to solve this problem is, okay, I'm gonna have
+[36:57] mutable state, I'm allowed to assign values to variables,
+[37:00] but I'm never gonna share it.
+[37:07] All right, so how can two Go routines collaborate with each
+[37:11] other?
+[37:12] They want to be able to, that one wants to be able to do some
+[37:15] work that the other one can benefit from
+[37:19] without directly sharing mutable state,
+[37:22] without both of them having a pointer to some piece in memory.
+[37:27] And the answer to this is the channel.
+[37:31] Questions so far?
+[37:37] Okay.
+[37:43] Channels are a first-class object in Go.
+[37:46] You can create them, you can destroy them,
+[37:48] you can pass them as arguments, you can return them as values.
+[37:51] That's what a first-class object means.
+[37:54] Channels are a mechanism that allow you
+[37:58] to convey elements of some type between two Go routines safely.
+[38:06] And there are two core operations on a channel.
+[38:10] There's C arrow value which sends the value value
+[38:16] on the channel C and there's value arrow
+[38:21] C actually it's usually written this way value
+[38:27] equals arrow C
+[38:29] which receives a value from the channel and stores it in the
+[38:33] location value.
+[38:36] By default,
+[38:38] channels have no storage capacity.
+[38:42] So they don't,
+[38:42] they can't themselves store anything.
+[38:45] They only act as a conduit between a sender and a receiver
+[38:49] who have to sort of both be there at the same time.
+[38:54] So this is a zero capacity channel.
+[38:58] C is defined as make channel of type T.
+[39:01] So So, the channel is allowed to convey objects of type T.
+[39:05] Question?
+[39:06] So,
+[39:06] channels can't act like a type with the backlog?
+[39:09] You can't just like send three messages and it waits until...
+[39:12] Not if they have zero capacity.
+[39:14] You can create channels with capacity,
+[39:16] that is verboten in 4.91.
+[39:20] Verboten, you may not do it.
+[39:23] And we'll talk about why when we get there.
+[39:26] A sender that wants to send an object of type T in a zero
+[39:31] capacity channel must wait until there's a receiver ready to
+[39:35] receive it.
+[39:36] Likewise, a receiver that wants to receive an object of type T
+[39:39] from a channel must wait until a sender is ready to send it.
+[39:44] When both of them are ready, the channel acts as a rendezvous.
+[39:49] it conveys a copy of the object from sender to receiver and it
+[39:54] also provides a synchronization guarantee so it
+[39:59] guarantees that the sender that the work the sender did
+[40:04] prior to sending the value across the channel
+[40:09] is visible
+[40:12] to any work the receiver will do after receiving the value
+[40:17] and that the sending of the value happens before the
+[40:20] receiving of the value.
+[40:22] So you can build a chain of custody.
+[40:27] So that's a rendezvous. It's like handing off a baton in
+[40:30] a relay race.
+[40:32] Is there any use in sending some sort of,
+[40:35] not nonsensical,
+[40:36] but just some sort of zero values that you can use it as
+[40:39] like, hey, I know all of this happened before some point is
+[40:44] visible to everything that happened after some point in
+[40:46] another go routine, but not that the value actually needs to be
+[40:49] communicated in some meaningful way.
+[40:51] So there are times,
+[40:52] the question is, is there times in which the communication is a
+[40:56] thing occurred
+[40:58] as opposed to here is a value in which you may be interested.
+[41:03] And the answer to that is yes.
+[41:05] However,
+[41:07] if you're using that to do anything more than a thing has
+[41:11] occurred,
+[41:12] like,
+[41:13] and what is its value?
+[41:15] That gets you back to the problem of shared memory.
+[41:18] If you are using shared memory,
+[41:21] like you have two Go routines that have references to the same
+[41:25] physical thing and they might use them at the same time,
+[41:29] you are doomed.
+[41:30] Because you're going to eventually get it wrong.
+[41:33] I mean, maybe you'll always get it right.
+[41:36] I haven't,
+[41:37] but you could.
+[41:38] All right,
+[41:39] let's go ahead. We're going to take a three and
+[41:41] a half minute break. When that clock says 11.14,
+[41:46] we will return.
+[41:48] Okay.
+[41:54] How are you?
+[41:56] I can't stay for more than one minute.
+[42:22] Okay,
+[42:24] so if it doesn't see the value of the like,
+[42:27] I don't know,
+[42:27] I can't download the slides, because I can't sign into any of
+[42:30] my cases.
+[42:38] He starts to execute, we're lucky.
+[42:42] Washington,
+[42:42] okay.
+[42:48] Be the result of A2, but not the result of A2.
+[43:02] It's because the compiler can't know what two go-routines are
+[43:07] doing relative to one another.
+[43:09] The speed of execution is enough.
+[43:11] So,
+[43:12] are you going to be, like,
+[43:13] talking to the manager in a new book, and he's going to be,
+[43:15] like,
+[43:16] deciding what to do at one time?
+[43:17] Yeah,
+[43:18] whatever it happens to be.
+[43:22] Using old y and new x,
+[43:24] old y or new y and new x or old y and old x.
+[43:29] Any of those things? No,
+[43:31] it's not possible.
+[43:32] Ah, I have a question for you.
+[43:34] It's not possible.
+[43:35] It's not possible.
+[43:38] It's possible.
+[43:38] A to B is possible, but what B to A might not be possible.
+[43:44] And also,
+[43:45] A to A is possible,
+[43:48] but A to C is not possible.
+[43:51] So if there's any case, like, maybe like, in this kind of
+[43:55] experience, like,
+[43:56] there are a lot of things in the game that they try to find, like
+[44:00] find, find their roots,
+[44:02] like,
+[44:03] like,
+[44:04] if you, like, if they try to,
+[44:06] if they try to, like, aim to C, they're like, this is not
+[44:08] possible,
+[44:09] so has it ever tried to?
+[44:11] You can,
+[44:11] it's pretty,
+[44:12] it's pretty.
+[44:21] My radio can't reach C, but it can reach B.
+[44:32] It's not coming. So, like, it's not coming to,
+[44:35] like, just, like, try to find the, like, you know,
+[44:37] like,
+[44:38] just wait till the path to C comes back up.
+[44:44] Let me do this question first, and if you have more questions,
+[44:46] do it after.
+[45:04] It's going to receive one of those six at the end of
+[45:06] the room.
+[45:25] All right.
+[45:28] Let's start talking about how to use these.
+[45:32] So the first thing to know is there is something called the
+[45:34] Channel Synchronization rule.
+[45:36] right there so there so I want you to be really clear in your
+[45:39] head about how this works in go routine s there's some line B
+[45:43] and these are the only two channel operations anywhere in
+[45:47] the program if these are the only two operations anywhere in
+[45:50] the program that use the channel C and go routine s there's some
+[45:53] line B that that wants to send a value across C and in go routine
+[45:58] R there's some line a that wants to read the value out
+[46:01] of the
+[46:06] executions of A and B overlap in time,
+[46:11] in fact we say they happen concurrently,
+[46:14] they happen at the same, we don't even say they happen
+[46:15] concurrently,
+[46:16] they happen at, we say those two lines happen at the same time.
+[46:21] The effects that were visible in S before line B are guaranteed
+[46:25] to be visible in R after line A, so in other words the send and
+[46:29] receive happen at the same time, and the receiving go routine is
+[46:33] guaranteed to see at least all program visible effects at the
+[46:37] point of sending.
+[46:42] Which once you start getting used to this idea will start to
+[46:44] feel pretty natural.
+[46:47] So there's a canonical use of how we use channels.
+[46:51] We want to model if there's a single copy of some piece of
+[46:54] shared state S,
+[46:55] which is kind of the same thing we would have done with mutual
+[46:57] exclusion.
+[46:58] We have some piece of shared state,
+[46:59] we identify it. So, there's some piece of state
+[47:02] S,
+[47:02] and that state is currently owned by the Go routine foo.
+[47:05] So,
+[47:06] one of the things that will be different is we're going to have
+[47:08] a model in our head of ownership.
+[47:11] So, at any one point,
+[47:12] this piece of data is going to be owned by one Go routine.
+[47:17] And so, the single copy of that piece is currently owned by foo,
+[47:21] and foo wants bar to be able to use it.
+[47:25] Then the flow of operations that foo either initializes or
+[47:29] modifies it's copy of S,
+[47:32] foo will send S along the channel C,
+[47:35] bar will receive a copy of S from the channel C, because
+[47:38] these are all done by value, not by reference.
+[47:41] So bar gets its own copy of S from the channel C,
+[47:45] but we model this in our program meaning
+[47:49] as if the ownership of S passes from foo to bar.
+[47:53] So while foo no longer owns it, it shouldn't ever touch it.
+[47:58] There's nothing that prevents that from happening other than
+[48:01] convention.
+[48:03] Convention just means a smart programmer followed the rule.
+[48:08] Bars copy of S is guaranteed to be whatever foo sent because the
+[48:13] initialization or modification happened before the send.
+[48:17] And any reading of S happened after the receive.
+[48:21] So the go routine bar is guaranteed to see S That's as it
+[48:27] was sent,
+[48:29] by food.
+[48:33] All right,
+[48:34] now,
+[48:35] you're Michigan students.
+[48:37] And the primary problem with Michigan students is that you're
+[48:40] too damn smart.
+[48:43] And you want to be clever.
+[48:44] This was kind of your question. Your question was a clever
+[48:46] question.
+[48:48] And any program visible actions at insertion are visible upon
+[48:52] removal.
+[48:55] Later actions might also be visible or might not.
+[49:00] So don't ever share non-channel state across coroutines because
+[49:04] you just have no idea how much of it you can see.
+[49:10] If you restrict sharing to message passing, so the only way
+[49:13] you share two notions of information are by sending it
+[49:19] from one to another via channel. I got you, I'm gonna come to you
+[49:22] in a minute.
+[49:23] You benefit from local reasoning.
+[49:28] Local reasoning is a license to work less.
+[49:35] I'm a big fan of working less.
+[49:39] In fact, I'm kind of fond of it.
+[49:42] Fairly well known for it.
+[49:43] Question.
+[49:44] If you have two channels and a send order is fled between
+[49:50] the receive order on the other thread,
+[49:53] then can you deadlock?
+[49:54] Yes,
+[49:55] so if I want to send on channel,
+[49:59] I only have two go routines in my world, and I have two
+[50:01] channels A and B.
+[50:03] One wants to send on A while the other one is trying to receive
+[50:06] on B,
+[50:07] nothing is going to happen.
+[50:10] So yes, we're gonna talk more about that later, but not a
+[50:13] whole lot right now.
+[50:19] Alright,
+[50:19] one of the things that you need to be a little bit careful about
+[50:22] is passing things by reference. So sending a pointer to
+[50:27] something across that channel,
+[50:29] the value of the pointer is guaranteed and you're guaranteed
+[50:32] to see the stuff that was there before the send and maybe some
+[50:36] of the stuff after,
+[50:37] but maybe not, you don't know.
+[50:42] So, if the inserting go routine changes the values that are
+[50:45] pointed to later, some of those values might be seen,
+[50:49] some of them might not and there's nothing you can say
+[50:51] about it.
+[50:53] Now,
+[50:53] that's one thing, okay, don't pass things by,
+[50:56] don't pass pointers around.
+[50:58] That's one good rule to follow.
+[51:01] Unfortunately, one of the things that we're going to talk about
+[51:03] this week in discussion section is some things or go are
+[51:07] inherently references.
+[51:09] So they inherently are, they're represented internally by a
+[51:13] pointer.
+[51:15] So just to keep things simple,
+[51:18] once you insert a thing into a channel,
+[51:22] never touch it again,
+[51:25] unless and until you get the ownership back.
+[51:29] Now you can convince yourself,
+[51:30] well,
+[51:31] there are no pointers here, so it's fine, so I can do it.
+[51:33] You could do that.
+[51:35] That sounds like work to me.
+[51:38] Hate it,
+[51:39] not a fan.
+[51:40] In fact,
+[51:41] thinking generally,
+[51:42] not a fan.
+[51:43] Because it's hard.
+[51:45] Thinking's hard.
+[51:46] Do less.
+[51:47] It's fine.
+[51:49] Don't do none,
+[51:50] do less.
+[51:52] All right, so this gets back to our counter.
+[51:54] So here's, so if we were gonna build our counter using channels
+[51:58] instead of integers,
+[52:01] pointers to integers. Remember,
+[52:02] what we used to do is we launched four of these counters,
+[52:05] we passed each of them a pointer to an integer value, and they
+[52:08] stomped all over each other and it was a disaster.
+[52:11] So what we're going to do instead is we're going to have
+[52:14] one logical copy of the integer,
+[52:19] and we're going to pass ownership of that integer from
+[52:22] counter to counter.
+[52:24] So the main Go routine will begin by owning the integer,
+[52:28] it's going to insert the integer into a channel, one of the
+[52:30] counters will remove the integer from the channel and do its
+[52:33] counting.
+[52:35] And while it's doing the counting, the other counters are
+[52:37] waiting around to get ownership of the value.
+[52:40] And this is what this looks like.
+[52:41] So instead of passing the pointer to an integer,
+[52:44] we're passing a channel of integers.
+[52:47] The first thing we do is we read the current value of the integer
+[52:51] off the channel.
+[52:53] That means we now are the owner of value.
+[52:57] We do our count to a million,
+[53:00] we print what we did,
+[53:01] we put the value back into the channel and we're done.
+[53:08] So value is now an integer value, it's not a pointer to an
+[53:13] int.
+[53:13] So this is a copy of an integer, it's not physically the same
+[53:18] integer as anyone else's integer.
+[53:21] So there is no shared memory in this picture.
+[53:24] Question. Yeah so in this example the
+[53:28] channel is not within the loop.
+[53:31] We're coming to that.
+[53:32] Okay.
+[53:32] Hold that thought.
+[53:34] Check is in the mail because we're gonna get there.
+[53:42] Now in main the way this works is okay we still need a value
+[53:46] that starts at zero we still need the number of counters that
+[53:49] we're gonna launch. We also now need a channel so
+[53:52] we're gonna construct a channel of capacity zero of type
+[53:54] integer.
+[53:56] Then we're gonna launch four different counters passing that
+[54:00] channel as an argument then we're gonna we're gonna pass out
+[54:05] our ownership of the value to somebody don't know who somebody
+[54:09] will eventually get it and pass that ownership off then I'm
+[54:13] gonna sleep for a second and hope it's the hope that kills
+[54:16] you but I'm asleep for a second and hope it's enough time to get
+[54:20] everything done, and then after a second has elapsed, hopefully
+[54:25] everybody's done with their work, and the last counter is
+[54:28] waiting to give me its value back,
+[54:30] and I read it off the channel, and I'm good, and I print it.
+[54:33] And in fact, if you compile this version and run it, I'm gonna
+[54:36] post the demos later today,
+[54:38] so you can see them all.
+[54:40] But if you compile this version and run it,
+[54:43] that's exactly what you're gonna get.
+[54:47] So counter zero's initial value is zero, So,
+[54:50] when it's done it's a million,
+[54:51] counter 3's initial value is a million,
+[54:54] once done it's 2,
+[54:55] counter 1, 2 to 3,
+[54:57] counter 2, 3 to 4,
+[54:58] and then eventually the main wakes up from its second sleep
+[55:01] and says I'm done.
+[55:04] Now this is almost equivalent to the sequential execution.
+[55:09] And this is I think your question.
+[55:12] Now the order of the counters can change,
+[55:16] but they don't overlap. Because inherently,
+[55:20] one of the counters owns the value, the other three don't.
+[55:24] And until and unless the owner gives up ownership,
+[55:27] the other three are just waiting around to do something.
+[55:32] So the counter executions do not overlap.
+[55:36] Not very interesting yet.
+[55:39] But not wrong.
+[55:42] So that's good. Yes.
+[55:43] Can you just go back to the previous slide?
+[55:47] Do you mean when you guys switch,
+[55:49] like when you're waiting for a channel doesn't that block or?
+[55:52] It does block.
+[55:54] But if I'm waiting to read a value of the channel,
+[55:58] and three counters are waiting to read the value from the
+[56:02] channel,
+[56:02] which one of us gets the value?
+[56:05] That is a good question.
+[56:07] And the answer is,
+[56:09] it's random.
+[56:10] The language runtime purposefully,
+[56:14] if there's more than one go routine waiting to send on a
+[56:17] channel and only one go routine waiting to receive or vice versa
+[56:22] or lots of go routines are waiting to send and lots of go
+[56:26] routines are waiting to receive on the same channel,
+[56:29] the language runtime randomly picks one on each side.
+[56:35] Why is it random?
+[56:39] This is actually a really interesting question, yes.
+[56:41] Is it because the language wants you to purposely see bugs caused
+[56:46] by it? Yeah, it's because the language does not want you to
+[56:49] rely on a particular execution order being the one that
+[56:54] happens.
+[56:56] So it actually does this on purpose.
+[56:58] In fact,
+[56:59] one of the other things,
+[57:00] we'll talk about this on Friday, but there's this thing called a
+[57:03] map that's basically just a hash table from one type to another.
+[57:07] And if you iterate over the map,
+[57:10] you get the values in random order,
+[57:12] so that you don't get them in the order you inserted them, so
+[57:15] you don't rely on that order for how things happen.
+[57:18] Yes?
+[57:21] The randomness also,
+[57:23] like,
+[57:24] I think the term is liveness,
+[57:26] so if you pick randomly,
+[57:28] then there's no,
+[57:30] like,
+[57:31] the only way that a value get kind of never picked is purely
+[57:34] through jams.
+[57:40] There's something to that,
+[57:42] I want to push that conversation on the stack,
+[57:45] because there's way more to that conversation than just that
+[57:48] question.
+[57:49] And I do not have time to do the whole thing right now.
+[57:52] But it's a good question and it's worth talking about.
+[57:55] So if you run this a second time, you might get the counters
+[57:57] in some other order.
+[57:58] But you'll see this general pattern.
+[58:00] Each counter will finish in turn.
+[58:04] And now why is that?
+[58:06] That gets back to the observation that you made
+[58:08] earlier which is this model is all at once.
+[58:12] I obtain ownership of the value and I retain ownership of the
+[58:16] value until I am completely done.
+[58:22] Now that might not be what we want.
+[58:24] We might want there to be some work interleaving.
+[58:27] For this example it's not that interesting because there's
+[58:29] almost nothing happening but if there is some like if this val
+[58:33] equals val plus one if that was you know some complicated
+[58:37] computationally expensive comp thing
+[58:40] like we were obtaining cryptographic hash values or
+[58:43] something well then there might be a reason to have them
+[58:47] interleaved with one another and we might want that to happen so
+[58:52] what we would like is to let someone else have a turn after
+[58:56] we do some of the work we want to do not all of the want to do
+[58:59] some of the work, let someone else have a turn for a while.
+[59:05] Now this gets back to what I was talking about earlier.
+[59:08] Channels are Go routine safe.
+[59:10] There are some elements of the language,
+[59:12] so channels,
+[59:13] you might have mentioned I'd sort of blew back,
+[59:15] passed in a hurry,
+[59:16] the channels are represented by reference,
+[59:19] internally.
+[59:21] So if two different Go routines have, if you pass one channel to
+[59:25] another,
+[59:26] you're just passing a pointer to the internal structure,
+[59:28] which means two different Go routines that have access to the
+[59:34] same channel have access to shared memory,
+[59:37] because the channel is shared.
+[59:41] But the people who built the channel made sure they built it
+[59:43] in a safe way. And you can do that.
+[59:46] You can build data structures that are Go routine safe, which
+[59:49] means multiple Go routines can muck with it at the same time
+[59:52] and it will behave as expected.
+[59:56] So,
+[59:57] turns out that's true for channels too,
+[59:59] multiple go routines can send to or receive from the same channel
+[1:00:01] at the same time,
+[1:00:03] and if two or more go routines want to send or equivalently
+[1:00:06] receive,
+[1:00:07] the runtime will choose one at random to go first,
+[1:00:10] which means, and this is a little bit of what you're asking
+[1:00:12] about live in this,
+[1:00:14] everyone will eventually get a chance.
+[1:00:17] There's no guarantee about the order or, you know, will someone
+[1:00:20] get a chance twice, maybe, maybe not, we don't know.
+[1:00:22] But everyone will eventually get a chance.
+[1:00:27] All right, so here's what the let someone else have a turn
+[1:00:30] almost solution looks like. You'll see why it's an almost
+[1:00:34] solution in a minute.
+[1:00:36] So we obtain ownership,
+[1:00:39] print its value,
+[1:00:40] we do one iteration through the loop,
+[1:00:43] and then we say,
+[1:00:45] well,
+[1:00:45] let someone else have a turn,
+[1:00:49] and then I want my turn again.
+[1:00:53] So I release ownership of the value by sending it along
+[1:00:59] the channel to somebody else,
+[1:01:01] and when eventually I am able to obtain ownership again, I will,
+[1:01:06] and then I can do the next iteration of my loop.
+[1:01:10] And then when I'm done, I send the value out.
+[1:01:15] All right, if we do that, this is called the fine grain
+[1:01:17] solution.
+[1:01:19] And now we see there's actual work done in the middle,
+[1:01:21] right? Counter one starts at zero, then counter three gets a
+[1:01:25] turn at one,
+[1:01:26] then counter two gets a turn at two,
+[1:01:28] then counter one gets a turn at three.
+[1:01:31] Counter one turns out to be the first one to finish close to
+[1:01:36] four million.
+[1:01:37] Counter two finishes next closer to four million.
+[1:01:41] Counter zero,
+[1:01:42] finishes third,
+[1:01:43] even closer to four million,
+[1:01:47] and then main wakes up.
+[1:01:51] Now,
+[1:01:52] a couple reasons maybe why that happened.
+[1:01:54] One reason is well maybe we just didn't sleep long enough
+[1:01:57] You can sleep for an hour, you're gonna get the same
+[1:01:59] answer.
+[1:02:00] I mean they won't be exactly the same numbers because the order
+[1:02:03] of how things happen will be different from execution to
+[1:02:06] execution, but the final counter is never going to get to finish.
+[1:02:13] Why not?
+[1:02:16] Okay, first of all, the go routines make similar,
+[1:02:18] but not identical progress.
+[1:02:21] And it's similar because it's random.
+[1:02:23] So, you know, one of the things that we're gonna talk a lot
+[1:02:25] about in 491 is the value of randomness.
+[1:02:30] And there's a theory class on randomized algorithms.
+[1:02:34] I actually really encourage you to take that.
+[1:02:36] And I hate theory,
+[1:02:38] like I am not a fan.
+[1:02:41] But that class is gonna show you a lot of why that stuff is cool.
+[1:02:45] So go routines make similar but not identical progress,
+[1:02:48] but the final go routine is never going to finish.
+[1:02:51] No matter how long main sleeves,
+[1:02:53] the final go routine is never going to finish.
+[1:02:56] Why not?
+[1:02:59] Let me get someone who has an answer.
+[1:03:01] I don't think, have you answered a question yet?
+[1:03:03] I've answered one. Let me see if I get someone who
+[1:03:05] doesn't answer one yet first.
+[1:03:08] Why not?
+[1:03:13] And it's in the comments.
+[1:03:15] Yes.
+[1:03:17] Yeah.
+[1:03:18] Once all the other three Goroutis finish,
+[1:03:22] and the last one is in the loop,
+[1:03:25] then on the line within the loop,
+[1:03:29] when it releases the value to the channel So let the other
+[1:03:34] ones go, there are no other.
+[1:03:36] Right.
+[1:03:37] So let one of the others go.
+[1:03:41] But when you're the last counter, there are no others.
+[1:03:46] And this is going to block until someone wants to read the value
+[1:03:50] out of the channel.
+[1:03:52] The only time that's going to happen now, if you're the last
+[1:03:54] counter, is when Maine finally wakes up from its sleep, no
+[1:03:58] matter how long it is,
+[1:03:59] and says, give the value from the channel assuming that
+[1:04:01] everybody is done.
+[1:04:05] So that's the problem. Let one of the others go.
+[1:04:08] What if there are no others?
+[1:04:15] Now part of the problem is that I'm using this example for
+[1:04:19] exposition and it's actually really bad example because the
+[1:04:25] channel itself conveys a lack of clarity,
+[1:04:31] right?
+[1:04:33] That there's only one channel and everyone is reading and
+[1:04:36] writing to it.
+[1:04:38] Like that that you actually want channels and our use of channels
+[1:04:42] in 491 will typically convey structure.
+[1:04:45] So we'll have a source and a sink to a channel,
+[1:04:49] and they won't go in the other direction.
+[1:04:50] If you want to go in the other direction,
+[1:04:52] there will be a separate channel.
+[1:04:53] Much like if you're doing an RPC,
+[1:04:55] there's a call and a return, and they happen across disjoint
+[1:04:58] things.
+[1:05:00] And internally,
+[1:05:01] we're going to basically want to do the same thing.
+[1:05:03] If I want you to do something, I'll ask you to do the thing,
+[1:05:05] and when you're done, you'll tell me you're done.
+[1:05:08] And so,
+[1:05:09] ordinarily,
+[1:05:11] we want channels to convey structure.
+[1:05:14] Not only does everyone read and write this channel,
+[1:05:17] but we're using it for two different purposes.
+[1:05:20] Getting the value when everyone is done and passing the value
+[1:05:23] along people who are doing it.
+[1:05:26] And that's horrid.
+[1:05:28] It's just bad style,
+[1:05:31] right?
+[1:05:32] Ideally,
+[1:05:34] channels should convey structure
+[1:05:36] and the intellectual framework of your design.
+[1:05:39] And in fact,
+[1:05:40] someone asked about deadlock. Deadlock is basically just, I
+[1:05:43] have a generalized version of I'm waiting for you and you're
+[1:05:47] waiting for me.
+[1:05:49] It's sort of like,
+[1:05:50] this doesn't happen now because we're no longer, we're not,
+[1:05:53] so about four years ago, five years ago,
+[1:05:59] one out of every seven undergraduates
+[1:06:04] with a degree from the University of Michigan in any of
+[1:06:08] the schools or colleges
+[1:06:10] had a degree in computer science.
+[1:06:15] That's no longer quite true,
+[1:06:17] but it was true not too long ago.
+[1:06:19] And it's not true now because some people think AI was gonna
+[1:06:22] put us all out of business tomorrow,
+[1:06:24] and so they're off studying something else, I don't know
+[1:06:26] what.
+[1:06:28] But before,
+[1:06:30] and now my wait list is like four,
+[1:06:33] and it'll probably clear.
+[1:06:35] And in fact,
+[1:06:36] even when my wait list is 20 in a size of class this big, it'll
+[1:06:40] clear.
+[1:06:41] But there used to be wait lists so long that we had wait lists
+[1:06:45] at least the size of the enrollment, if not longer.
+[1:06:48] And we were never gonna get through it.
+[1:06:52] Now, if you were a student back then, you registered for
+[1:06:55] whatever you could get and then you had the stuff you wanted.
+[1:06:59] And you would wait on a wait list over here hoping you would
+[1:07:02] get a spot, but you would not drop this, because if you drop
+[1:07:06] this you're not enrolling in anything because everything is
+[1:07:10] full even the stuff no one wants to take because there aren't any
+[1:07:15] choices
+[1:07:17] now if someone is taking 482 and correctly wants to take 491
+[1:07:22] instead
+[1:07:24] but they could only get into 482 they're not going to give up
+[1:07:27] their 482 seat till they get a seat 491 if someone is in 491
+[1:07:31] and for some reason wants to take, it's not wrong,
+[1:07:35] exactly,
+[1:07:37] but they want to take 42.
+[1:07:38] These two students, if they knew each other existed,
+[1:07:42] could swap seats, but there was no mechanism for that to happen.
+[1:07:47] So this student's waiting for a seat 491, this student's waiting
+[1:07:50] for seat 492,
+[1:07:51] neither of them is ever going to get what they want.
+[1:07:54] And in fact,
+[1:07:55] for a very long,
+[1:07:56] for many years,
+[1:07:58] there's the the major design experience that the engineering
+[1:08:01] CS students have to take,
+[1:08:03] and there's a version of that where you basically do your own
+[1:08:05] thing.
+[1:08:06] You pick a project and you do it.
+[1:08:07] Something like half of those were better enrollment systems,
+[1:08:11] because this was such a disaster,
+[1:08:14] right?
+[1:08:15] So,
+[1:08:16] we want channels to convey this structure,
+[1:08:19] and the structure should avoid these kinds of mutual weights,
+[1:08:23] and that's going to show up in project two.
+[1:08:25] We're going to talk about it a lot.
+[1:08:27] But the framework should also be explanatory.
+[1:08:31] The structure of your channel should convey the structure of
+[1:08:35] your thinking.
+[1:08:36] Like anything else in your program.
+[1:08:38] So we're going to see a slightly better version of this in a
+[1:08:41] little bit.
+[1:08:41] But for right now we're going to leave the mess where it is.
+[1:08:46] Alright, so what is our specific problem? Our specific problem is
+[1:08:50] that one counter is sharing with zero or more others.
+[1:08:55] But if there are zero others,
+[1:08:57] there should be no sharing.
+[1:08:58] I don't need to share with nobody.
+[1:09:01] So I don't need to do that.
+[1:09:02] So,
+[1:09:03] one of the solutions to this,
+[1:09:05] and kind of the easiest thing to get to from where we started,
+[1:09:08] which we're gonna do for exposition purposes,
+[1:09:11] is convey both ideas in the past values.
+[1:09:14] So instead of just passing around the integer we're
+[1:09:16] counting,
+[1:09:17] we're gonna pass around a structure
+[1:09:19] that includes the integer we're counting and the number of
+[1:09:21] counters that are still laying around,
+[1:09:24] and that's what this looks like.
+[1:09:27] So here we have a type,
+[1:09:28] a value, a value is a struct,
+[1:09:30] there are two integers.
+[1:09:31] The first integer is the number of counters, the second integer
+[1:09:34] is the value we're counting.
+[1:09:37] We're going to initialize V instead of initializing V to an
+[1:09:40] integer,
+[1:09:41] it's going to be initialized to this one of these values where
+[1:09:45] the value of counters is four and the value of val is zero.
+[1:09:49] Then I'm gonna make a channel of those things.
+[1:09:53] I'm gonna launch my four counters,
+[1:09:57] right?
+[1:09:58] That we know is that.
+[1:10:01] I'm gonna launch those four counters,
+[1:10:03] giving each one of those channels.
+[1:10:05] Then I'm gonna stick the structure in the channel.
+[1:10:07] I'll do my sleep, hoping and praying that it's enough.
+[1:10:10] And when that sleep ends, I'll pull something off it and
+[1:10:14] hopefully we're done.
+[1:10:18] All right, so this structure is conveying for each of the
+[1:10:22] counters both how many counters are still around and how far
+[1:10:26] have we counted so far.
+[1:10:30] This is the,
+[1:10:31] this is how we initialize that thing.
+[1:10:32] We have a channel of those things and we pass them around.
+[1:10:35] We look,
+[1:10:36] instead of just using V, we need individual fields.
+[1:10:39] So far so good.
+[1:10:42] Inside the function now our turn taking code is
+[1:10:48] we only need to take a turn if there's more than one counter
+[1:10:52] still around.
+[1:10:54] If there's more than one counter still around then we let that
+[1:11:00] other counter potentially take a turn.
+[1:11:02] If there aren't we're just gonna keep doing our work so once we
+[1:11:06] get to the point where we're the last counter alive we'll just
+[1:11:10] keep doing our work when we're done we note
+[1:11:16] that well there's one less counter laying around and then
+[1:11:20] we stuff that back into the channel questions about this
+[1:11:24] solution we're still relying on sleep in Maine so what
+[1:11:30] you know but but At least we have this part, yes.
+[1:11:34] Can you go back to the main part?
+[1:11:38] Yes, so here you start the loop.
+[1:11:42] I is equal to zero, I is less than B dot counters.
+[1:11:45] Yep.
+[1:11:46] Is this good practice in general, because what if one
+[1:11:49] count,
+[1:11:51] it's very unlikely,
+[1:11:52] but like,
+[1:11:53] well, what if one go routine finishes before that loop, it's
+[1:11:55] finished executing,
+[1:11:57] and then the counters decrements?
+[1:12:00] Probably not,
+[1:12:03] yeah, that's probably bad.
+[1:12:08] Probably want our own count of that.
+[1:12:13] Well, no,
+[1:12:14] it's fine.
+[1:12:16] Because V is, no it's fine,
+[1:12:19] why?
+[1:12:23] No,
+[1:12:24] even if it's passed in the channel it's still fine.
+[1:12:26] Why?
+[1:12:29] You're thinking 482.
+[1:12:32] No, because they're passed by value.
+[1:12:37] When I stick that structure into the channel,
+[1:12:41] the receiver gets a copy of whatever I put in.
+[1:12:44] It doesn't get the thing that I put in.
+[1:12:47] Right?
+[1:12:48] So my copy of V will never change
+[1:12:52] until and unless I assign to it or modify it.
+[1:12:56] So my copy of v is guaranteed,
+[1:12:58] even if one of these counters finishes first,
+[1:13:01] and it decrements the counters field that it has and stuffs
+[1:13:04] that into a channel,
+[1:13:05] my copy doesn't change.
+[1:13:10] I'm good.
+[1:13:12] Now it does violate the don't touch it rule.
+[1:13:15] Because I'm touching it after I've put it in a, well,
+[1:13:19] no.
+[1:13:20] Because I haven't even put it in a counter yet.
+[1:13:22] I haven't even passed it yet.
+[1:13:25] No, I think,
+[1:13:27] actually,
+[1:13:28] gosh darn it, I think I was right.
+[1:13:31] How about that?
+[1:13:32] Because I didn't think about this problem at all.
+[1:13:34] But no, I think I'm good.
+[1:13:36] So here, because,
+[1:13:37] let's look at what's going on, right? So one of the other
+[1:13:39] things,
+[1:13:40] and I'll do this, when I was teaching, when I took operating
+[1:13:43] systems,
+[1:13:44] I took operating systems from a guy at Berkeley by the name of
+[1:13:48] Domenico Ferrari.
+[1:13:50] Professor Ferrari was great.
+[1:13:51] He was born in Italy. He actually would go home in
+[1:13:55] August for a month. He ended up being my research
+[1:13:57] supervisor when I was an undergrad.
+[1:13:59] And he would go home to his family farm in Italy for a month
+[1:14:03] in August every year.
+[1:14:04] And he did not work while he was gone.
+[1:14:06] It was really fascinating.
+[1:14:07] But every once in a while, he would be writing on the board
+[1:14:09] and he'd walk to the back of the room.
+[1:14:13] And he'd then stare at the board for like time.
+[1:14:18] And then he'd walk back to the board and go back three boards
+[1:14:20] and erase something and fix it. And he would always,
+[1:14:23] and he did this like three or four times in the semester I
+[1:14:25] took the course from him, and he would always say the same thing.
+[1:14:28] When you're standing next to the board, you can't see the
+[1:14:30] problem.
+[1:14:32] That has very profound implications for lots of things,
+[1:14:34] but we're gonna come back to that later.
+[1:14:36] So because I'm touching this always, all of my references to
+[1:14:41] V are before I ever released ownership of it,
+[1:14:45] it's totally fine.
+[1:14:48] Even if I didn't,
+[1:14:50] even if I had released ownership from it, it still wouldn't be
+[1:14:52] wrong,
+[1:14:53] but then I have to think,
+[1:14:56] yuck,
+[1:14:57] thinking's bad,
+[1:14:58] okay.
+[1:15:01] Five minutes, let's see how far we get.
+[1:15:06] So if I run this version, what happens?
+[1:15:10] The counters interleave,
+[1:15:11] they do approximately the same amount of work, and in fact all
+[1:15:14] of them finish because by the time we get to here,
+[1:15:18] Counter 2 is the only one counting.
+[1:15:21] The number of other counters is 1.
+[1:15:24] It'll just keep counting until it gets to 4 million and we're
+[1:15:27] done.
+[1:15:29] All right, so that gets us to almost the end.
+[1:15:33] We still have this problem of this time sleep.
+[1:15:38] So this is what happened on the machine I happened to be sitting
+[1:15:41] in front of when I ran this. I cut the sleep in half to half
+[1:15:43] a second.
+[1:15:45] And I didn't even get halfway there.
+[1:15:47] which is actually kind of, I'm not sure why that is, that's
+[1:15:49] kind of interesting to me.
+[1:15:52] I would have expected it to get at least about halfway because
+[1:15:54] it always finished with one second when I ran it on the
+[1:15:57] machine I had.
+[1:15:58] Doesn't mean it would always, but every time I ran it, it did.
+[1:16:01] So if the sleep is too short,
+[1:16:03] then what will happen is we're starting to read off the
+[1:16:07] channel.
+[1:16:08] Before all of the counters are finished,
+[1:16:11] we don't want to read from the channel until all the counters
+[1:16:13] are finished.
+[1:16:15] Now okay so you could read off the channel oh they're not done
+[1:16:19] yet put it back in but that's terrible because you're just
+[1:16:23] gonna keep doing that over and over and over again like if I
+[1:16:25] did it here I just keep doing it over and over and over again for
+[1:16:28] four million times and do a bunch of extra channel
+[1:16:31] operations that I do not need to do.
+[1:16:34] I should probably do that and see how painful it is.
+[1:16:39] Now what's so what's the problem?
+[1:16:43] The problem is our channel is playing two roles.
+[1:16:46] It's conveying values between counters and it's also conveying
+[1:16:49] the final value to main.
+[1:16:51] And in general this is going to come up a couple different times
+[1:16:54] in the semester.
+[1:16:56] And I'm going to apologize because unfortunately we have
+[1:16:59] trained you to do this.
+[1:17:02] The reason we've so So, the thing not to do is do not use
+[1:17:06] one abstraction for two purposes or one data element to mean two
+[1:17:10] different things.
+[1:17:13] Separating abstraction simplifies correctness and it
+[1:17:16] also provides clarity.
+[1:17:19] Why is that important?
+[1:17:21] This gets back to something I said at the very beginning of
+[1:17:24] class when I said the point of writing a program is not to
+[1:17:28] execute it. The point of writing a program
+[1:17:31] is that it conveys your understanding of a process to a
+[1:17:34] reader.
+[1:17:35] That reader might be another machine or it might be another
+[1:17:37] human.
+[1:17:38] The easier you make that reading,
+[1:17:42] the happier other people are with you.
+[1:17:44] And in fact,
+[1:17:47] one of the ways people think of their best colleagues in a
+[1:17:52] programming team is the people who write the easiest code to
+[1:17:55] read,
+[1:17:56] because it makes my job easier.
+[1:18:00] So,
+[1:18:01] now,
+[1:18:01] and I'm gonna end with the apology and then we'll come back
+[1:18:04] and solve the problem.
+[1:18:06] So the apology is we have trained you
+[1:18:10] to use one data element for two different purposes.
+[1:18:13] Where did we do that?
+[1:18:21] Yes. Yeah,
+[1:18:23] but there's a particular class where we did this,
+[1:18:27] yes.
+[1:18:27] Yeah, go ahead.
+[1:18:29] No, it wasn't 280.
+[1:18:32] Yeah, 281.
+[1:18:35] Why?
+[1:18:35] Because 281's autograder evaluates three things.
+[1:18:40] Correctness,
+[1:18:42] runtime,
+[1:18:43] space.
+[1:18:45] I don't know about you, but my first sort of naive solutions to
+[1:18:49] most of the projects in 281,
+[1:18:52] the last time I taught it,
+[1:18:53] did not pass all of the space and time runtime,
+[1:18:56] all the space and time requirements.
+[1:19:00] That's probably a problem but you don't know why it's not and
+[1:19:03] we're not going to tell you.
+[1:19:04] So what do you do?
+[1:19:05] You look for every little cycle you can squeeze out of a loop
+[1:19:09] and you think well if I could use this integer to mean two
+[1:19:12] different things instead of these two integers maybe I'll
+[1:19:15] pass the space.
+[1:19:23] Now, if you're writing the inner loop of the Google search
+[1:19:25] engine,
+[1:19:26] and you squeeze a couple of nanoseconds out of that inner
+[1:19:30] loop,
+[1:19:31] you're saving real money.
+[1:19:32] Great.
+[1:19:34] You're not doing that.
+[1:19:36] You're solving 491 projects.
+[1:19:38] Simple,
+[1:19:39] clear.
+[1:19:40] I will see you next time.
+[1:19:52] I'm going to go one more time,
+[1:19:53] are you going to go to like Thursday right now?

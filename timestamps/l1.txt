@@ -1,0 +1,1731 @@
+[00:03] All right, welcome to EECS 491.
+[00:10] My name is Brian Noble,
+[00:12] I'm a professor of electrical engineering and computer
+[00:13] science. I've been here a while.
+[00:14] We'll talk about that a bit later.
+[00:16] Well, actually, we'll do that bit now.
+[00:18] So this is going to be in a slide later, but I am starting
+[00:22] my 40th year of college.
+[00:24] I've been around for a few minutes,
+[00:25] my 27th year on the faculty at Michigan.
+[00:28] And how many of you know where Jackson, Michigan is?
+[00:35] OK, a handful.
+[00:37] So if you drive west on I-94,
+[00:40] you'll see a sign,
+[00:41] prison area, do not pick up hitchhikers.
+[00:43] That's roughly where Jackson, Michigan is.
+[00:45] I'm not from Jackson.
+[00:47] How many of you know where, does anyone know where Clark Lake is?
+[00:51] Nobody knows where Clark Lake is, fascinating.
+[00:54] I'm also not from Clark Lake. Clark Lake was where the post
+[00:56] office was, but it was this cross from US 127.
+[01:00] I grew up in a very small town called Liberty Township,
+[01:05] which is about, I don't know, 20, 25 minutes south of Jackson.
+[01:09] When I was 16,
+[01:11] my family moved to Palo Alto, California.
+[01:13] Any Pally or Gunn graduates in the room?
+[01:16] Usually got a couple, which one?
+[01:18] I was from Pally, but I went like 10 minutes down the street.
+[01:21] Which was?
+[01:22] Los Altos.
+[01:23] I won't hold it against you. I went to Pally.
+[01:26] Graduated from Palo Alto High in 1987.
+[01:30] My parents moved back to Michigan at about the same time
+[01:35] I finished graduating high school.
+[01:37] I was choosing between the University of California,
+[01:39] Berkeley and the University of Michigan.
+[01:42] I chose such that I thought 2,000 miles away from my parents
+[01:46] was approximately the correct distance.
+[01:48] So I stayed in California when they moved back to Michigan.
+[01:52] Graduated from Berkeley with a degree in electrical engineering
+[01:55] computer science,
+[01:57] moved overshot,
+[01:59] ended up in Pittsburgh at Carnegie Mellon where I got my
+[02:02] master's and my PhD in computer science with a focus in mobile
+[02:06] and distributed computing,
+[02:07] and then quite by accident I ended up back here.
+[02:11] This was not the plan, but I'm now living sort of within
+[02:15] spitting distance of one of my brothers,
+[02:18] both of my parents,
+[02:19] and an enormous amount of family.
+[02:21] How many of you are residents?
+[02:23] Any state residents,
+[02:24] Michigan residents in the room?
+[02:26] So the punchline for you all is that reaching escape velocity is
+[02:29] harder than you think.
+[02:31] And the jokes don't get better than that.
+[02:33] So that's as good as it gets.
+[02:35] So what are we gonna do today?
+[02:37] I'm gonna start,
+[02:38] my first lecture is,
+[02:40] I'll talk a little bit about the syllabus, but we're all adults
+[02:42] and capable of reading, so I'm not gonna go through all of it.
+[02:46] Instead, what I tend to use my first lecture for is what I
+[02:49] refer to as the manifesto lecture, which is,
+[02:51] why is this the thing you ought to be doing?
+[02:55] And so,
+[02:56] why study distributed systems?
+[02:59] The short version of this is,
+[03:01] it will change the way you think about computing fundamentally.
+[03:08] So, you think you might have taken another course that has
+[03:12] concurrency. You probably haven't taken
+[03:14] another course that deals with distributed systems in quite
+[03:17] this way. So, you probably have a model in
+[03:20] your head about how computation works.
+[03:22] My goal in this class is to convince you that that model is
+[03:25] incorrect,
+[03:26] which is just sort of how learning works, but that's okay.
+[03:31] We'll talk a little bit about general course logistics, but
+[03:33] I'm going to end with why would we even bother studying computer
+[03:37] science, because there might be other things that can do what
+[03:40] we're doing, and I think I have a good answer for that.
+[03:44] Stop me anytime you have questions.
+[03:45] I've heard all of this before. I've taught this class a few
+[03:48] times now,
+[03:49] so if I miss something or you have questions about anything,
+[03:53] feel free to ask. This is much more fun if it's
+[03:55] interactive,
+[03:56] probably more fun for you because I'm not that great at
+[03:58] this.
+[03:59] So,
+[04:00] any burning questions at the moment?
+[04:07] All right,
+[04:08] hearing none,
+[04:09] let's talk about it.
+[04:10] So what is a distributed system? The sort of informal way of
+[04:14] thinking about distributed systems is that a distributed
+[04:17] system is a collection of multiple interconnected
+[04:19] computers,
+[04:21] each of which is cooperating to provide the illusion of a single
+[04:27] machine or service provided to a set of clients in the world.
+[04:32] A little more formally,
+[04:35] and we're going to come back to this definition a lot,
+[04:38] a distributed system is a collection of distinct
+[04:41] processes.
+[04:42] Processes are just running programs.
+[04:46] Collection of distinct processes that are spatially separated.
+[04:49] They're not all in the same physical location.
+[04:53] They communicate by exchanging messages.
+[04:56] That's the only way they can communicate.
+[04:58] There's no shared state. There's no shared memory.
+[05:00] They don't share storage.
+[05:02] The only way they can communicate is by exchanging
+[05:04] messages back and forth. Those messages have
+[05:07] non-negligible communication delay and the processes do not
+[05:11] share fate.
+[05:13] Now we can kind of squeeze any of these definitions a little
+[05:15] bit.
+[05:16] What is spatially separated mean?
+[05:18] It could just mean machines in one building but they're still
+[05:21] not all physically in exactly the same space and even in that
+[05:24] case they still are communicating only by exchanging
+[05:27] messages and they have a non-negligible communication
+[05:31] delay. Which just means we can measure
+[05:33] the round trip of a network message in our processor.
+[05:37] Now this collection of distinct processes are cooperating to
+[05:41] provide this illusion.
+[05:42] Okay, sounds great,
+[05:43] not complicated.
+[05:44] Why are we even spending an entire semester on this?
+[05:46] And in fact, we're not even gonna spend an entire semester
+[05:49] on the whole problem. We're gonna spend the entire
+[05:51] semester on really kind of two problems.
+[05:55] And so the two,
+[05:57] I'm gonna have three problems because three is the magic
+[06:00] number,
+[06:00] but why do we care?
+[06:03] Why is this an interesting thing to think about?
+[06:06] Well, the first reason is because failures happen.
+[06:10] It is impossible to make failures impossible.
+[06:14] You cannot legislate away failure.
+[06:16] It does not work.
+[06:20] And if you have only one machine,
+[06:22] when that machine fails, the service it provides is dead for
+[06:25] as long as that failure exists until someone comes along and
+[06:28] fixes it.
+[06:30] This is actually made more complicated
+[06:33] because it turns out to be much better to build these
+[06:36] distributed systems out of what are called commodity parts.
+[06:39] Commodity parts tend to have higher failure rates than
+[06:41] specialized systems.
+[06:43] So failures are just happening all the time.
+[06:45] Unlike if you've never encountered a distributed system
+[06:48] before,
+[06:50] unlike all of the systems you've worked with,
+[06:52] failures are also partial.
+[06:54] So if you're just working on one machine even if you're building
+[06:58] something like in 42 you've got one running operating system has
+[07:01] multiple processors so you're still struggling with the
+[07:03] problems of concurrency when something fails on that machine
+[07:06] the machine fails and the whole thing dies and you don't have to
+[07:10] worry about parts of it still working in parts of it not right
+[07:14] so that's that's a very very challenging problem.
+[07:17] The second problem and this is more obvious is because a single
+[07:21] machine is finite now it is also true that a collection of
+[07:24] machines are finite and everything is finite because
+[07:27] there are a finite number of atoms in the universe but a
+[07:31] single machine is finite and limited so it doesn't matter how
+[07:35] much money you have available there's a limit to how much you
+[07:37] can spend on a single machine to get stuff done and there are all
+[07:42] kinds of reasons for that if you hang out in with the 470 and 570
+[07:46] folks they will convince you that Moore's law has been dead
+[07:48] for a really long time and we're doomed if If you hang out with
+[07:52] the OS folks they'll convince you that parallelism only gets
+[07:56] you so far because there's always a bottleneck and so on
+[07:59] and so forth. So we can't build things that
+[08:02] scale to the planet out of a single machine.
+[08:06] And we'd like to.
+[08:08] And the final reason is that because the speed of light is
+[08:11] not just a good idea,
+[08:13] oh I'm missing a bit,
+[08:15] it is the law.
+[08:17] This has profound consequences for how we build these things
+[08:21] and here's here's the simplest example of the problem of 491.
+[08:28] Has the Sun exploded?
+[08:31] You say no, but I think you changed your mind.
+[08:36] Yeah.
+[08:37] Maybe it has, maybe it hasn't. We'll find out in eight minutes.
+[08:40] Right,
+[08:40] so the Sun may have exploded and it may have exploded at any time
+[08:44] between now and eight minutes ago.
+[08:48] If it has, we'll know in some time in the next eight minutes.
+[08:53] But eight minutes from now, we still won't know if the sun has
+[08:56] exploded.
+[08:58] Maybe it has, maybe it hasn't.
+[08:59] One of the consequences of taking this class and sort of
+[09:03] really internalizing the lessons of this class is that you will
+[09:05] walk around on this planet for the rest of your life not
+[09:09] knowing if the sun has exploded and having that be part of your
+[09:12] existence. I'm apologizing for that in
+[09:15] advance but it's true right so so there are some real
+[09:20] consequences of this that it if we're not like leaving the
+[09:24] planet even getting to a round trip around the globe is around
+[09:30] 150 milliseconds you can do a lot of computing in 150
+[09:35] milliseconds in fact humans can even sort of detect the variance
+[09:40] of 150 milliseconds.
+[09:42] About 100 milliseconds most humans can tell the delay.
+[09:45] It's over that, they can tell it's slow.
+[09:47] If it's less than that, it looks instantaneous.
+[09:49] There are actually a group of humans who are better than 100
+[09:51] milliseconds. They can get down to almost 80.
+[09:54] What do they do for a living, anyone know?
+[09:57] Yeah.
+[09:58] F1.
+[09:59] F1, so F1 drivers are those people.
+[10:01] There's actually another group I'm thinking of.
+[10:04] Yeah?
+[10:06] Professional video game players. It turns out, people who play
+[10:09] video games for a living have better response times than the
+[10:13] rest of us do.
+[10:14] Ah,
+[10:18] that's why I have two slides.
+[10:20] So what is the distributed systems playbook?
+[10:22] We're gonna basically do three things, and we're really gonna
+[10:26] focus on the first two, and really we're gonna focus on the
+[10:29] first one.
+[10:30] The first question is going to take us almost two-thirds of the
+[10:34] course.
+[10:36] We want to build reliable services with unreliable
+[10:39] components, because failures are inevitable.
+[10:42] We want to give the user the illusion that the service never
+[10:46] fails.
+[10:48] Now, that's a nice goal.
+[10:51] There are some companies for which that's existential.
+[10:54] I haven't looked recently to see what Amazon's revenue per second
+[10:58] is,
+[11:00] but it's astonishing. so every second they are not up
+[11:04] they lose a remarkable amount of revenue.
+[11:06] It's actually a little worse than that because part of the
+[11:09] other thing that's pretty interesting about selling things
+[11:12] to people is that you do not want to give them a time to
+[11:16] think about whether this purchase is a good idea.
+[11:20] The more time you give them to think about whether this
+[11:22] purchase is a good idea the more likely they are not to make it.
+[11:26] So if you are in the of selling things to people,
+[11:29] you want to sell things to people quickly.
+[11:33] Because you want them to,
+[11:34] oh yeah, I love that, great, yes, bye.
+[11:38] So that's the first goal.
+[11:39] We want to build reliable services with unreliable
+[11:42] components.
+[11:44] Second goal.
+[11:45] Well, we like to aggregate systems for higher capacity.
+[11:47] This is sort of dealing with the second problem,
+[11:50] which is that one system is necessarily finite.
+[11:54] So,
+[11:55] you know, how do we get more CPU cycles than a single CPU or a
+[11:58] single multiprocessor can give us? Well, we buy more of them.
+[12:01] How do we get more memory? How do we get more disks? How do we
+[12:03] get more network bandwidth?
+[12:05] All of that is by scaling out.
+[12:08] You can scale up for a while.
+[12:10] We'll talk more about this later in the course, but scaling up
+[12:14] has a limit, and in fact, you don't really want to be on the
+[12:16] bleeding edge of technology at the highest scale of any
+[12:19] individual component because you end up paying too much for it on
+[12:23] a per-compute basis.
+[12:25] You kind of want to be a generation or two behind.
+[12:28] And if you're a generation or two behind, that turns out to be
+[12:30] optimal for the cost per cycle,
+[12:32] the cost per bit,
+[12:33] the cost per disk kilobyte,
+[12:36] the cost per gigabit per second, et cetera.
+[12:40] And then finally, you want to place components near users for
+[12:42] response time. Because again,
+[12:44] users can kind of detect that 100 millisecond range.
+[12:48] Now,
+[12:49] it's one thing that if you have just one round trip that takes
+[12:51] 150 milliseconds,
+[12:53] but most network protocols have several different message
+[12:56] exchanges to do anything interesting.
+[12:59] So if it's 150 milliseconds round trip and you got six of
+[13:02] those,
+[13:03] you're pushing a second.
+[13:04] People can definitely tell that.
+[13:07] So we'll often,
+[13:08] and this will turn out to be hard,
+[13:10] and we won't talk about this too much because it turns out doing
+[13:14] this in general sacrifices some other things.
+[13:16] This is a core tension that we're gonna talk about later in
+[13:20] the term questions so far
+[13:24] okay
+[13:28] this turns out to be really really hard
+[13:33] and in fact so I've I've had the chance to teach a fair few of
+[13:37] the topics in our curriculum this one is actually I think
+[13:42] intellectually some of the media stuff we've done in the
+[13:46] curriculum and I really think there's There's not a lot of
+[13:49] building to it, but there's a lot of thinking to it.
+[13:53] So why does this turn out to be hard?
+[13:55] It turns out to be hard for a couple different reasons.
+[14:00] First is that humans are really bad at reasoning about
+[14:03] concurrency,
+[14:05] inconsistency,
+[14:06] and ambiguity.
+[14:07] And I'm gonna talk about each of those in turn and explain what I
+[14:09] mean by those.
+[14:13] But to do that, I wanna set a little bit of sort of a
+[14:16] philosophical stake in the ground.
+[14:20] What is the purpose of studying computer science?
+[14:24] Why would we do this?
+[14:33] It's still the case we get paid pretty well.
+[14:35] That's not a bad reason.
+[14:37] It's actually a pretty good reason.
+[14:39] I like that reason.
+[14:41] But why are we here?
+[14:44] Thoughts?
+[14:47] Yeah.
+[14:48] to get the tools we need in order to solve like modern
+[14:52] computational problems? Yeah, so we're gonna learn some tools and
+[14:55] techniques and idioms
+[14:56] to be able to help us do some things.
+[15:00] So that's one. Any other guesses?
+[15:02] I've got three.
+[15:09] So the first,
+[15:12] we're training ourselves in a discipline of thought.
+[15:15] So I have two kids. Both of them are Michigan
+[15:18] alumni.
+[15:19] One is now,
+[15:20] God help me,
+[15:22] an assistant professor of anatomy.
+[15:24] So I have a faculty member as a child, which is just bizarre to
+[15:26] me.
+[15:27] The other one's still in grad school studying cognitive
+[15:30] affective neuroscience.
+[15:33] And one of the things that's kind of interesting about the
+[15:35] two of them is that they're kind of both interested in questions
+[15:38] of evolution
+[15:41] and how humans came to be what they are.
+[15:44] My son specifically,
+[15:45] cognitively, my daughter more generally, but also that
+[15:47] includes cognitive stuff.
+[15:51] And humans have evolved to be really good at a number of
+[15:55] things. We're really good at detecting
+[15:57] the tiger rustling in the grass.
+[16:00] That turns out to be something humans are good at.
+[16:03] Humans, it turns out,
+[16:03] are also good,
+[16:05] surprisingly good, at picking up the emotional tone of other
+[16:08] humans that are around.
+[16:11] That turns out to be an important survival skill for
+[16:13] humans.
+[16:14] What they're not particularly good at is thinking about a
+[16:17] large number of relatively complicated facts
+[16:22] for a relatively long period of time and
+[16:29] that's kind of what you have to do to be able to write code
+[16:33] well.
+[16:34] It actually turns out to also be what you have to do to write
+[16:37] prose well.
+[16:38] And I'm back to this idea that the idea of writing prose in a
+[16:43] natural language, such as English,
+[16:45] and writing code in a formal language, such as Go, are
+[16:47] actually not that different.
+[16:49] There are some very tight parallels between them, and I'm
+[16:53] certainly not the first person to have observed this, but I
+[16:55] will come back to it a lot.
+[16:58] So this is a discipline of thought.
+[17:00] No one is born really awesome at this.
+[17:04] It's a thing we have to train ourselves to do.
+[17:07] So like any discipline of thought, it also requires a
+[17:10] practice.
+[17:11] Philosophy is the one that most people think of as a discipline
+[17:14] of thought that requires a practice.
+[17:15] Philosophical argument and skepticism is a particular line
+[17:19] of this idea.
+[17:21] Our version of this idea is process.
+[17:24] We think about the fine-grained complicated details of process
+[17:27] for long periods of time.
+[17:29] So that's the first reason one might study computer science.
+[17:34] The second reason, which is, I think, connected to your answer,
+[17:37] is to learn tools,
+[17:39] techniques,
+[17:41] idioms,
+[17:41] ways of doing things,
+[17:42] ways of thinking,
+[17:43] to overcome the fact that we're always going to be crap at the
+[17:47] first thing.
+[17:48] We're just never going to be awesome.
+[17:51] And I've been doing this for a few minutes now.
+[17:56] It is still incredibly frustrating to me to look at my
+[18:01] code for an hour,
+[18:02] trying to figure out why it's wrong,
+[18:04] only to discover that I've made some really silly mistake.
+[18:07] Like the most recent one,
+[18:09] I was redoing one of the projects and I had something
+[18:13] outside of a loop that should have been inside of a loop, and
+[18:16] I stared at it for an hour and I couldn't figure out why it was
+[18:18] wrong.
+[18:20] I had another one where it was less than instead of less than
+[18:23] and equal to.
+[18:26] Now, you may not suffer from this when you're in your 50s,
+[18:29] but my experience has been it's been pretty constant.
+[18:33] I am not the world's best programmer, but I'm not bad.
+[18:38] So, the second reason is to learn the tools and techniques
+[18:40] to overcome the fact that we're not good at the first thing.
+[18:42] For example, one of the things you'll hear me talk about a lot
+[18:44] is a structural invariant. Anyone remember what a
+[18:47] structural invariant is?
+[18:49] Talk about it in 280. I'm gonna have someone who
+[18:51] hasn't answered a question yet.
+[18:55] We certainly talk about them in 281,
+[18:57] but I believe we still talk about them in 280 unless they
+[18:59] don't teach it the way I used to teach it.
+[19:02] Yes?
+[19:03] It's normally the exact definition, but I know it's like
+[19:05] some kind of rule about something that can't be
+[19:07] programmed. Yeah,
+[19:08] so a structural invariant is the definition of how a structure,
+[19:13] of whether or not a structure is well formed.
+[19:15] So for example, a linked list is zero or more nodes that end in a
+[19:20] null pointer
+[19:21] and point to each other in succession.
+[19:23] That's the informal definition. You can write a more formal one.
+[19:26] Why are structural invariants awesome when you're writing
+[19:29] things in 281?
+[19:35] Interesting.
+[19:40] Give me a guess.
+[19:43] What does using a structural invariant give you when you're
+[19:47] trying to figure out a problem?
+[19:49] that you don't get otherwise.
+[19:53] Again, so, yes?
+[19:54] Program language invariant.
+[19:56] Any program language you can code.
+[19:58] The problem is it helps you be language independent.
+[20:04] That's true. But I'm thinking more about,
+[20:06] I've got a bug.
+[20:07] My linked list is wrong.
+[20:09] How do I find the bug?
+[20:11] Yes, in the back.
+[20:13] You can search your invariants and test them.
+[20:17] And importantly,
+[20:20] every function,
+[20:21] every method, if you've written your data structure such that
+[20:24] the internals of the data structure are private to the
+[20:26] methods of the structure,
+[20:28] which is one of the things we strongly encourage you to do in
+[20:30] 281.
+[20:31] I hope we still do that.
+[20:33] If you do that,
+[20:34] then every method is allowed to assume the invariant is true on
+[20:38] entry.
+[20:40] And the way you find out which method is wrong, or which
+[20:43] methods, but which method is wrong, is you look for the
+[20:46] method that doesn't guarantee the invariant is true on every
+[20:49] exit.
+[20:50] It's one of the reasons why when I teach 280 and 281,
+[20:53] I'm kind of particular about having only one return
+[20:56] statement,
+[20:57] and no exceptions.
+[20:59] Because if you have one return statement and no exceptions,
+[21:01] there's only one place to check.
+[21:03] Why is that helpful?
+[21:09] Yes?
+[21:10] You mean it's not really a lot of the code? Yeah, you only have
+[21:14] to think about one method at a time.
+[21:16] You don't have to think about, well, what if I call this method
+[21:19] and that method and this method and this other method, does that
+[21:21] go wrong?
+[21:22] Well, it doesn't matter because if one of those four methods
+[21:24] doesn't establish the invariant, it's the problem.
+[21:28] So the benefit of a structural invariant is it allows you to
+[21:33] perform local reasoning on your program.
+[21:35] You do not have to understand how the methods interact.
+[21:39] you only have to understand each individual method and whether or
+[21:43] not it establishes the invariant.
+[21:45] That is a way simpler problem
+[21:47] because the complexity of code grows more than linearly in its
+[21:51] size.
+[21:53] So the longer the code you have to think about is,
+[21:57] the faster the complexity grows and it grows much faster than
+[22:00] linearly.
+[22:01] I don't know what it is.
+[22:02] Talk to 481, they will explain it to you.
+[22:06] Okay,
+[22:06] so we're gonna learn some of those tools and techniques to do
+[22:09] this specifically in distributed systems.
+[22:13] I talked to my colleagues,
+[22:15] you know, in computer science,
+[22:16] everybody I tell these first two things, like, yeah, absolutely.
+[22:19] That's exactly what we're doing.
+[22:20] I just had this conversation with my PhD advisor in February.
+[22:24] And my advisor is one of these annoying people who is well-read
+[22:26] about everything.
+[22:28] It's extremely annoying.
+[22:30] So I occasionally, I really like the chance of getting him to
+[22:32] think about stuff.
+[22:34] I gave him these first two, he's like, yes, absolutely.
+[22:36] And then I gave him the third. It's like, I'm not so sure about
+[22:39] that.
+[22:41] So the third reason we're doing this is it allows you to develop
+[22:44] a voice of expression.
+[22:48] The point of writing code is not to have it execute
+[22:53] for me.
+[22:56] The point of writing code is to encode your understanding of a
+[23:02] process in a way that some other reader will be able to
+[23:07] understand quickly.
+[23:09] That reader could be a machine, it could be another person,
+[23:11] doesn't really matter.
+[23:13] But the better you are at writing clear, elegant code,
+[23:17] the easier it is for other people to pick your code up and
+[23:20] do something with it.
+[23:22] It is a method of communication, just like writing text is a
+[23:25] method of communication.
+[23:29] And one of the other things, so I also have the joy of sitting
+[23:33] on, I'm the co-chair of the Faculty Committee on Discipline,
+[23:36] which is the body that hears all of the honor code cases that
+[23:40] don't say, yeah, I did it.
+[23:43] I will tell you, it is shocking how different a group of
+[23:48] 400 students'
+[23:50] solutions will look to a relatively simple problem.
+[23:54] They just don't look the same,
+[23:56] hardly ever,
+[23:58] and certainly not by accident.
+[24:02] It's just amazing.
+[24:06] If you know these three things,
+[24:10] if you never write another line of code in your life
+[24:15] after the day we finish this class,
+[24:18] these three things will still serve you well.
+[24:21] Because what these three things are is really about dealing with
+[24:24] complexity.
+[24:26] And complexity is everywhere, not just in programming.
+[24:31] All right,
+[24:32] so,
+[24:32] but we're gonna deal with these three things specifically in the
+[24:35] context of concurrency,
+[24:37] inconsistency,
+[24:37] and ambiguity.
+[24:39] So why are these difficult?
+[24:40] So,
+[24:42] back in for a bank,
+[24:43] replicating the balances across machines, we deposit a check for
+[24:45] $100,
+[24:46] and then the bank tells us it's done.
+[24:51] On a single machine, this is relatively easy-ish,
+[24:56] right?
+[24:57] right, so there's only one copy of the data to update and the
+[25:01] things you can model a program running on a single machine is
+[25:05] having a total order that happens.
+[25:07] Now there might be concurrency within that one machine but even
+[25:11] there you get some benefit because you have shared memory
+[25:13] and you've got some tricks that you can play to make it look
+[25:15] like it's just has one total order.
+[25:18] On a distributed system you have no hope of doing that and you
+[25:21] have no hope of doing that because there are many copies on
+[25:24] different machines,
+[25:25] there are many clients talking to the service,
+[25:27] each of the machines operates independently and they can't
+[25:29] know the exact state of each other at any point in time
+[25:32] because they only communicate by sharing messages.
+[25:35] We'll come back to that one in a minute.
+[25:38] So what does that mean?
+[25:40] What that means is there is no law, you cannot have,
+[25:43] you cannot have one total order of events because there are
+[25:49] independent machines that operate independently and they
+[25:51] can do things concurrently in any order they want.
+[25:57] But some events have to be ordered for correctness.
+[26:01] For example,
+[26:02] if you have a distributed service that's just updating key
+[26:06] values,
+[26:08] put get.
+[26:09] It's about as simple as you can imagine.
+[26:11] Because there are multiple clients working with that
+[26:13] machine at once, if the server exposes a put before it's
+[26:18] written safely to disk, and fails before that happens the
+[26:22] put didn't happen but some client thinks it did
+[26:26] that's a problem client it turns out when I
+[26:32] deposit $100 in the bank it tells me the hundred dollars is
+[26:35] deposited I'm gonna be really upset if the hundred dollars is
+[26:38] not there tomorrow that's not cool
+[26:42] so that's the problem.
+[26:46] The second problem is inconsistency.
+[26:50] So remember that we had this definition of a distributed
+[26:52] system,
+[26:53] they communicate by exchanging messages and they have a
+[26:55] non-negligible communication delay.
+[26:58] One of the consequences of this and at the moment you'll read
+[27:02] this and go well of course that's true and then you'll
+[27:05] leave here and it won't have sunk in and in fact it probably
+[27:08] won't be until about some point between about a third of the way
+[27:13] into the class and about two-thirds of the way into the
+[27:15] class, where this becomes something that you know in your
+[27:18] bones.
+[27:21] And the something that you know in your bones is that it is
+[27:23] impossible
+[27:25] to change the value of a replicated object at exactly the
+[27:29] same time in two or more places and guarantee that.
+[27:33] You cannot do it.
+[27:38] What that means is,
+[27:41] as our system evolves and executes over time,
+[27:44] there will always be moments when two or more replicas of a
+[27:49] particular data element disagree on what the current value of
+[27:53] that element is.
+[27:56] And so one of our goals is going to be defining ways of
+[28:02] telling when the transition from one value to another completes,
+[28:06] it will always take a certain amount of time.
+[28:10] And during that period, there will always be some
+[28:12] disagreement.
+[28:13] But if we can define the before and the after,
+[28:17] then we can reason about that before and after as if it
+[28:19] happened in a single point in time.
+[28:21] And if we can do that, we have a hope of thinking about order.
+[28:26] But that's hard.
+[28:27] And you just kind of have to internalize the reality of this
+[28:31] situation. And that's hard to do, because
+[28:34] we are not used to thinking about having multiple
+[28:37] perspectives on the same problem.
+[28:39] So I spend 90% of my time thinking about my favorite thing
+[28:43] in the world,
+[28:45] me.
+[28:46] And so do we all, that's what humans do.
+[28:49] And so we have our perspective on how the world looks, and if
+[28:53] we're sitting in the perspective of one particular server,
+[28:55] that's our perspective of the world,
+[28:57] and We think all of the other servers think the same way we
+[28:59] do, and it's just not true.
+[29:05] Third problem, ambiguity.
+[29:08] This one is also going to be something we struggle with a lot
+[29:11] in this class.
+[29:13] So I send the message to the,
+[29:16] sitting in front of the ATM,
+[29:17] I want to withdraw $100.
+[29:19] The ATM sends a message to the bank,
+[29:21] hey, please withdraw $100 from Brian's account.
+[29:23] And the ATM hasn't received a response, spent a long time,
+[29:26] hasn't received a response, Hasn't received a response.
+[29:28] Hasn't received a response.
+[29:30] It can't keep waiting forever.
+[29:33] I don't want to spend my day in front of the ATM waiting for it
+[29:35] to decide whether or not this withdrawal has happened.
+[29:39] So eventually it just decides the operation has failed.
+[29:46] Unfortunately, if a server doesn't reply,
+[29:51] one of four things can have happened.
+[29:54] One,
+[29:55] the message didn't get there.
+[29:58] Two,
+[29:59] the message arrived where it was supposed to show up, but the
+[30:02] server can't respond for whatever reason.
+[30:06] It's dead.
+[30:07] Three,
+[30:08] message got there,
+[30:09] server performed the action, but the response got lost.
+[30:13] Four,
+[30:14] it's just taking a really long time.
+[30:18] It's going to happen, but it just hasn't happened yet.
+[30:21] I'm going to get the response eventually, which I just haven't
+[30:23] done yet.
+[30:25] Now in general,
+[30:27] you cannot tell which of these is true given the way that
+[30:31] networks and computers are built.
+[30:36] And that means you do not know if the server performed an
+[30:41] update.
+[30:41] You send a request.
+[30:43] You do not know if the request happened until you get the
+[30:46] answer.
+[30:46] And the answer only tells you that it happened.
+[30:51] So you can never know when it doesn't happen in general.
+[30:56] I mean, the server might tell you I can't do this right now
+[30:58] but that's a convenience that's pleasant but it's not always
+[31:02] guaranteed to happen when the server can't do something right
+[31:04] now because if it can't do it right now, it might be so busy
+[31:06] it just can't bother to respond to a message.
+[31:10] That is extraordinarily annoying and it will be one of the core
+[31:15] struggles we have in this class.
+[31:22] So, putting all of this together, one of the other
+[31:24] things,
+[31:25] so you know the faster, better, cheaper, pick two story,
+[31:28] right?
+[31:29] It turns out that applies to distributed systems as well.
+[31:33] There is no way to simultaneously provide a system
+[31:37] that is always available,
+[31:40] that always gives consistent answers to questions, and can
+[31:44] tolerate failures.
+[31:47] And the short version of this is that either
+[31:50] you're talking to the majority of the replicas or not.
+[31:54] And if you're not,
+[31:55] the system either
+[31:57] has to not answer or potentially answer incorrectly because it
+[32:01] can't know the actual truth.
+[32:05] There's nothing we can do about that.
+[32:07] So the art of balancing the needs of availability,
+[32:10] consistency, and fault tolerance
+[32:12] is gonna be based on a bunch of things, application workloads,
+[32:15] points in the technology space,
+[32:17] what our actual deployment looks like, and so on.
+[32:20] So,
+[32:21] what are some examples of things where it's really important to
+[32:24] know whether the event happened?
+[32:26] Like, for sure.
+[32:29] I've actually given you one.
+[32:32] Yes?
+[32:34] Yeah,
+[32:35] you got to know whether the deposit happened or not, because
+[32:37] it turns out, at least in the United States, to be a federal
+[32:40] offense to create or destroy currency.
+[32:44] I prefer not to do that.
+[32:47] There are a couple others.
+[32:49] Did the missile launch?
+[32:51] It's actually an important one to know.
+[32:55] There are other examples.
+[32:56] Where are things where, you know, if I don't know exactly
+[32:58] the right thing, it's probably okay?
+[33:03] Someone who hasn't answered a question
+[33:08] yet.
+[33:12] We use systems like this all the time.
+[33:17] Yes.
+[33:18] The data sent during calling someone.
+[33:21] Sorry?
+[33:21] The data sent during calling someone.
+[33:24] I'm missing the last word before something.
+[33:27] The data sent during calling someone.
+[33:29] Data sent during calling someone.
+[33:30] Yeah,
+[33:31] so that's an example. There's another example.
+[33:34] Anything that's a social media application.
+[33:37] Do I really care exactly how many likes I've gotten right
+[33:40] this second?
+[33:41] Probably not.
+[33:42] Now, there may be monetization involved, and so I care about
+[33:44] getting it eventually correct.
+[33:46] But I don't care about it right,
+[33:48] like,
+[33:49] this particular moment. I have exactly the right number
+[33:52] of people who have liked my thing.
+[33:53] That's probably not important.
+[33:58] All right, so what do I hope you get out of this class? I hope
+[34:03] that as you leave this class you are able to reason about
+[34:08] distributed concurrency, consistency and ambiguity and
+[34:12] that you know in your bones that these things are true because it
+[34:17] turns out one of the things that you can model as a distributed
+[34:20] system as any group of people.
+[34:23] Because people have no shared state,
+[34:26] my brain and your brain are not directly connected,
+[34:29] at least not yet.
+[34:31] We can only communicate to each other with messages,
+[34:35] and those messages take measurable time.
+[34:38] Even the words that I'm saying take you measurable time to
+[34:42] hear.
+[34:43] And that's assuming that you hear them correctly,
+[34:45] and that you take the message that I'm intending correctly,
+[34:48] because one of the unfortunate things about natural language is
+[34:50] that it is inherently ambiguous.
+[34:53] So you also have to deal with ambiguity.
+[34:56] So when you're talking about,
+[34:59] if you've ever taken a restorative justice class or for
+[35:01] that matter psychological counseling,
+[35:04] you will often get in the habit of repeating the thing that you
+[35:07] hear
+[35:08] to the other person so that they know that what they said is what
+[35:12] you heard or what they thought they said is what you believe
+[35:15] you heard,
+[35:17] right? So,
+[35:18] being able to do those things will actually turn out to make
+[35:20] you much better able to navigate people,
+[35:24] which turns out is harder than navigating distributed systems,
+[35:26] at least for me.
+[35:29] The second thing is we're going to learn some tools and
+[35:31] techniques to make this easier and know some of these realities
+[35:34] in your bones, to really just sort of exist on the planet
+[35:37] knowing these things are true.
+[35:39] And more importantly, identify the properties of a system that
+[35:42] claims some things. When will it work well?
+[35:44] When will it break down? One of my favorite instances of this, I
+[35:47] don't think this is true anymore, I think this has been
+[35:49] corrected,
+[35:50] but like the first or second time I taught the class,
+[35:54] I used to give exams online, I do not do that anymore for
+[35:58] obvious reasons,
+[36:00] but I used to, and I actually was willing to let, even though
+[36:03] I told students they weren't allowed to use the probabilistic
+[36:07] plagiarism machine known as AI chatbots,
+[36:09] I was kind of willing to let them do it at the beginning
+[36:11] because they were often wrong.
+[36:13] And on my first midterm exam, I put a question that basically
+[36:18] described the consistency mechanism that is used by
+[36:21] Microsoft OneDrive.
+[36:23] And I even thought about naming it, but I decided not to.
+[36:26] And then I asked,
+[36:27] is this strongly consistent?
+[36:29] And if you just, if you know what strong consistency is and
+[36:32] you read what the question is, it's obvious that the system is
+[36:36] not strongly consistent.
+[36:37] But if you asked a chatbot of that period of time whether it
+[36:41] was strongly consistent or not, it would say absolutely.
+[36:45] Why?
+[36:46] Because all of Microsoft's advertising material says this
+[36:49] is strongly consistent and it's bullshit.
+[36:54] So part of what I want you to know when you leave this is when
+[36:57] someone comes to you and says I have the magic distributed
+[37:00] machine that is always consistent,
+[37:03] always available,
+[37:04] and always fault tolerant, you will know it's a lie.
+[37:08] Turns out there is one that gets really close to that And we're
+[37:10] going to end the semester talking about it.
+[37:12] And it uses a very clever trick to get there.
+[37:15] But it still isn't quite true.
+[37:18] It just looks like it's true.
+[37:21] We'll come back to it.
+[37:24] All right.
+[37:25] Let's take a breath.
+[37:26] Questions?
+[37:31] One of the things that it turns out,
+[37:34] I will sometimes share with you stuff.
+[37:36] Anyone know what CRLT, or the Center for Research on learning
+[37:39] and teaching is at the University of Michigan.
+[37:42] Anyone heard of it?
+[37:44] Cool, I get to explain it.
+[37:46] So CRLT is a teaching center.
+[37:48] Turns out the University of Michigan was the first US
+[37:51] university to develop one of these things.
+[37:53] We're also, I think, the first college of engineering to
+[37:55] develop one specifically for engineering.
+[37:58] The job of CRLT is it has a bunch of disciplinary
+[38:03] researchers, so people who got PhDs in one of the disciplines,
+[38:06] who have changed their careers to scour the literature of
+[38:11] instruction.
+[38:13] How do people learn and take back evidence-based things that
+[38:18] the research about how people learn has said and help us bring
+[38:23] it into our classrooms. One of the things I learned
+[38:24] early on at SCRLT lesson is that humans are pretty good.
+[38:29] They can sort of focus for about 40 minutes,
+[38:32] and we're a little over that. Actually, we're not quite over
+[38:34] that. It's 1107,
+[38:36] and that clock is wrong. I'm gonna come back to that too.
+[38:39] So I'm gonna try and build in breaks into my lectures.
+[38:42] Just a couple minutes to let yourself stand, stretch, check
+[38:45] your email, grab a drink if you need to.
+[38:47] When that clock says 11,
+[38:51] 11, I will resume.
+[38:56] Discussion?
+[38:57] It's my favorite.
+[38:59] It's my favorite. It's my favorite.
+[39:01] It's my favorite.
+[39:02] It's my favorite. It's my favorite.
+[39:03] It's my favorite. It's my favorite.
+[39:05] I thought you'd feel like 130,
+[39:08] bro,
+[39:08] while we're selling,
+[39:09] bro.
+[39:11] Oh my god, I think it's like today,
+[39:12] and at the end of the day, it's like,
+[39:14] we're both really sick.
+[39:16] Oh my god.
+[39:17] Alex, how old are you?
+[39:18] How old am I today?
+[39:21] Oh my god.
+[39:24] Oh my god. Oh my god.
+[39:26] Oh my god. Oh my god.
+[39:27] Oh my god. Oh my god.
+[39:29] Oh my god. Oh my god.
+[39:31] Oh my god.
+[39:35] Hi!
+[39:41] Hi!
+[39:42] Hi!
+[39:43] Hi!
+[39:52] Hi!
+[39:53] Hi! Hi!
+[39:54] Hi! Hi!
+[39:55] Hi!
+[40:25] It's okay, the essay class is like two weeks.
+[41:13] I don't know,
+[41:19] like,
+[41:19] those are all like,
+[41:20] I don't know, like, I don't know, I don't know.
+[41:25] Uh,
+[41:26] uh, looking at the walls,
+[41:28] like,
+[41:28] but there would just be, like, if you could just find it
+[41:30] afterwards after, or, like,
+[41:33] Wednesday,
+[41:33] if you're gonna use it again,
+[41:35] like,
+[41:35] in Microsoft.
+[41:37] Yeah, there are buttons!
+[41:39] Oh, right,
+[41:39] I know.
+[41:41] Oh,
+[41:42] Claire was, like,
+[41:43] making snack dishes.
+[41:44] Oh, my gosh!
+[41:46] I don't think that's going to work.
+[41:49] I can't do it, I can't!
+[41:51] I'm just, yeah.
+[41:52] Her bags are just, like,
+[41:54] paper.
+[42:14] All right.
+[42:23] So,
+[42:24] uh, bring it back together, please.
+[42:31] Quiet coyote.
+[42:35] Quiet coyote.
+[42:37] Oh, none of you do? Okay, a few.
+[42:40] Quiet coyote.
+[42:45] Okay.
+[42:46] Okay,
+[42:48] we have a great staff this semester.
+[42:50] I'm really excited.
+[42:51] As I mentioned, I've been doing this for a minute.
+[42:52] I am in my 40th year of college, which is shocking to me.
+[42:56] It feels better to say I'm in my 27th year as a professor, but
+[42:59] that's still kind of shocking.
+[43:00] We have eight excellent IAs, all of whom have taken the class
+[43:04] before and done quite well.
+[43:07] And their bios, we've got some, they've all put up some bios.
+[43:10] They're posted in the Google Drive, and I'll put a link to
+[43:13] those bios in Piazza so have a chance to see them.
+[43:17] Let me talk a little bit about my philosophy for how I treat
+[43:21] the class.
+[43:24] I assume that we are all responsible adults.
+[43:29] There have been some holes punched in that over the last
+[43:31] couple semesters, but for the most part that's my default
+[43:34] assumption going forward until you convince me otherwise.
+[43:38] I also assume we are all fallible humans.
+[43:41] That's just true
+[43:43] Because we're all humans and we're humans are fallible.
+[43:46] So I have three principles that I want you to apply while you're
+[43:50] in this class.
+[43:52] And these actually,
+[43:53] my kids will tell you about these because I,
+[43:56] when my kids were super little,
+[43:58] we had the noble family facts,
+[44:00] and the noble family facts where you have the meanest parents
+[44:02] ever,
+[44:03] the world is not fair,
+[44:05] and life doesn't, the world does not evolve around you, and it
+[44:09] turns out that when you're like four,
+[44:11] those three statements solve every problem you have,
+[44:15] right? But I really want dessert,
+[44:17] no.
+[44:19] Why not?
+[44:20] Rule one, fact one, you have the meanest parents ever.
+[44:24] Well, it's not fair that I don't get dessert and they get
+[44:26] dessert.
+[44:27] Fact two, life is not fair.
+[44:29] But I really want it.
+[44:30] Fact three, the world doesn't revolve around you.
+[44:33] The problem is that that doesn't capture moral reasoning, right,
+[44:36] so when they're a little older and they were capable of moral
+[44:39] reasoning, I realized that the noble family facts were just not
+[44:42] gonna cut it.
+[44:43] So instead, we created the noble family goals.
+[44:46] And the noble family goals, and these are these three
+[44:48] principles. The first,
+[44:50] do your best,
+[44:53] right?
+[44:53] Try to do your best in any situation.
+[44:56] Now, that's a goal.
+[44:58] So there will be times when you don't do your best.
+[45:01] And when you don't do your best,
+[45:03] take responsibility for your actions.
+[45:06] I didn't do that.
+[45:07] Okay, I'll take the responsibility for that.
+[45:09] It's fine, it happens.
+[45:11] I'm not gonna be offended by it, then it's the reality.
+[45:14] We all will sometimes not do our best.
+[45:16] There will be times when I have not done my best and I will come
+[45:18] and apologize for it.
+[45:22] The third one,
+[45:23] I don't remember if this was actually one of the ones that we
+[45:26] used in the house,
+[45:27] but I do use it here.
+[45:31] Perfection is not the goal.
+[45:34] I do not assume that you will be perfect.
+[45:37] I do not have as a goal that you will be perfect.
+[45:41] I don't, frankly,
+[45:42] really want you to be perfect,
+[45:43] because perfection requires way too much effort.
+[45:46] This is not the only class you are taking,
+[45:48] and classes are not the only interesting thing you should be
+[45:51] doing with your life at this time.
+[45:54] So,
+[45:55] you know, there's a point of diminishing returns.
+[45:57] I will occasionally have a student in my office,
+[45:59] you know, I'm struggling over this last test case,
+[46:01] I've gotten 97% of the points,
+[46:04] I don't know what to do, and I've given them some advice
+[46:06] about what to do, and they haven't really gotten anywhere
+[46:08] with that advice,
+[46:09] and then I can give, well, here's another thing you could
+[46:12] do, and it will probably take you about three days, or you
+[46:15] could stick a flag in the ground, declare success and move
+[46:17] on, and if it were me,
+[46:19] I'd take the flag.
+[46:22] Totally fine.
+[46:25] It is possible, if you wanna approach this class, just get a
+[46:29] good grade,
+[46:30] so you can get the good housekeeping stamp of approval
+[46:33] on 491, which in turn will get you the good housekeeping stamp
+[46:36] of approval on being a computer scientist or a computer engineer
+[46:40] or whatever your major happens to be so that you can take that
+[46:43] stamp
+[46:45] and enter the job market with it.
+[46:47] Fine,
+[46:47] I'm not gonna begrudge anybody doing that.
+[46:50] We have to live in the real world.
+[46:52] The real world is one of a political economy.
+[46:54] Money turns out to be important.
+[46:58] But I hope that's not the only reason you're here.
+[47:01] Because again,
+[47:02] this class, more than probably any of the others that I've
+[47:05] taught has the ability to change the way you view the world
+[47:09] in some pretty important ways and in some ways that will be
+[47:13] very helpful to you later in ways you cannot imagine at the
+[47:17] moment.
+[47:18] And also,
+[47:19] I just think this is cool stuff
+[47:21] to really deeply understand.
+[47:24] And in fact,
+[47:25] so the way I typically come to teach courses with the exception
+[47:29] of the first one I ever taught was 42.
+[47:31] I haven't,
+[47:33] my PhD is basically in the area of operating systems.
+[47:36] That's sort of the right thing to do.
+[47:38] But many of the other classes I've taught in my career have
+[47:42] happened because the person who was teaching that class has left
+[47:44] and I'm like, well I guess I'll do that.
+[47:47] Or it's a new class that no one really knows what we're doing
+[47:50] with and I guess I'll do that.
+[47:52] And the reason I do this because I have to then learn it.
+[47:54] I think I knew it. I thought I knew distributed
+[47:56] systems before I started teaching this class.
+[47:58] I know it a lot better than I used to.
+[48:01] And that process has been really just a wonderful thing.
+[48:06] And in fact, one of the very surprising things to me about
+[48:09] 491,
+[48:10] I am a simple country programmer,
+[48:14] by which I mean I'm kind of a hack.
+[48:18] I don't view myself as particularly principled
+[48:21] in terms of how I think about building systems.
+[48:23] I just kind of want to get them to work.
+[48:26] 491 is an extraordinarily principled discipline.
+[48:30] And much to my surprise, I found I have loved it.
+[48:33] So if you're the kind of person who's like, yeah, this 376
+[48:35] stuff,
+[48:36] not that interested.
+[48:38] Like, 477,
+[48:39] no, I am definitely not interested.
+[48:41] I want to do software class 491. I have bad news.
+[48:44] This is kind of a theory class in disguise.
+[48:47] But I think you'll like it.
+[48:50] At least that's been my experience.
+[48:53] There is a Canvas site, the only thing the Canvas site does is it
+[48:57] points you at Lamport.
+[48:58] The course website is lamport.ex.umich.edu.
+[49:01] It's called Lamport because a person by the name of Leslie
+[49:04] Lamport invented a lot of the stuff that we're going to be
+[49:06] talking about in the class.
+[49:09] All of the lecture slides, discussion materials, readings
+[49:11] are on a shared Google Drive link from the web page.
+[49:14] The web page also links to the lecture capture system for
+[49:17] recording all of the lectures and all of the discussion
+[49:19] sections. All of the projects are
+[49:21] accessible from there.
+[49:22] The only thing that's really not embedded
+[49:25] either in or directly linked from the course website, which I
+[49:29] guess it is, because the course website has a link to our
+[49:31] Piazza,
+[49:32] is parts of Piazza you should consider required reading.
+[49:38] Any post by the course staff to the general topic,
+[49:42] any pinned post, I assume you have read.
+[49:47] Now you might not read all of the posts about all of the
+[49:50] projects,
+[49:50] fine, but if there's a post in general or I've pinned it,
+[49:54] you need to have read it. That's required reading.
+[49:58] All of the announcements in class discussion will be there.
+[50:01] I will try really hard not to email you unless it is like
+[50:05] super time sensitive,
+[50:06] like hey, I'm sick, I'm not gonna be in lecture in 20
+[50:09] minutes, that kind of stuff.
+[50:13] There are four books we strongly recommend.
+[50:16] I won't go so far as to say we require them, although I could
+[50:20] probably be talked into saying the first three are required.
+[50:25] Learning Go, an idiomatic approach,
+[50:27] strong recommendation for that.
+[50:30] Concurrency in Go,
+[50:31] I assume you've never seen the Go programming language,
+[50:34] never so much as touched a keyboard in anger in relation to
+[50:37] Go.
+[50:38] It's fine,
+[50:39] that's totally reasonable. Go actually turns out to be a
+[50:42] very quick language to pick up because it's pretty simple and
+[50:46] pretty elegant.
+[50:47] And it also turns out to do some things that we need to do in
+[50:49] this course very, very cleanly.
+[50:52] I do want you, however,
+[50:54] to think about how the Go community uses Go.
+[50:58] It is possible to use Go to write essentially what is C++
+[51:01] code.
+[51:03] And you can,
+[51:04] although it turns out I'm not gonna let you do some things
+[51:06] that way.
+[51:08] But if you learn the idioms that the Go community uses, you will
+[51:11] become fluent. Like, the difference between
+[51:13] someone who can speak a language and someone fluent in the
+[51:16] language is really, it really comes down to idiomatic use,
+[51:19] right? What's an idiom? It's raining cats and dogs.
+[51:21] If you literally translate it's raining cats and dogs, it makes
+[51:24] no sense.
+[51:25] But if you're an idiomatic English speaker, it makes
+[51:28] perfect sense and you know what it means, right?
+[51:30] That's the, that I want us to sort of pursue
+[51:34] idiomatic fluency and go.
+[51:37] The third book,
+[51:38] Designing Data Intensive Applications, also a strong
+[51:40] recommendation. We're only gonna use about 20
+[51:43] pages of that book.
+[51:45] But man, those 20 pages are awesome.
+[51:50] So probably the number one most difficult conceptual challenge
+[51:56] in this course
+[51:57] is wrapping your head around something called
+[51:59] linearizability, which is a consistency model.
+[52:02] It's basically the set of guarantees that a distributed, a
+[52:04] potential set of guarantees that a distributed system can offer
+[52:08] to its clients.
+[52:12] This is going to be,
+[52:14] at least it always has been in the past, that I'm doing some
+[52:17] things differently, maybe it'll get a little better, but it
+[52:19] historically is the thing that is the hardest to wrap your head
+[52:22] around as a student in this class.
+[52:25] And in fact it might be after the midterm before it really
+[52:28] clicks. I'm hoping not,
+[52:29] but it can be, and that's okay.
+[52:32] But this book has the best explanation of linearizability I
+[52:37] have ever seen.
+[52:38] It is beautiful.
+[52:40] So those 20 pages are gonna matter.
+[52:44] There's also a book entitled,
+[52:46] so it turns out there's no good distributed systems textbook.
+[52:49] This is a distributed test systems textbook.
+[52:52] If you've bought other systems programming textbooks,
+[52:55] networking,
+[52:56] operating systems, blah blah blah,
+[52:57] you probably recognize the name Andrew Tannenbaum.
+[52:59] He writes many of them and it's a fine book but it's just not
+[53:03] quite what we need for this course but it's good for like
+[53:05] learning some other background stuff.
+[53:07] That's a weak recommendation but It's absolutely free.
+[53:09] You can just download a PDF,
+[53:11] they publicly license it.
+[53:13] For the other three,
+[53:14] please do not steal them.
+[53:18] Why do I say that? Well, one,
+[53:20] stealing is bad,
+[53:22] but there's a more important reason.
+[53:23] So if you are going to become a professional in our discipline,
+[53:27] you are going to make your living through the production of
+[53:30] intellectual property.
+[53:32] People are going to pay you for your thoughts
+[53:34] and for how you express them.
+[53:37] in some cases, quite a lot.
+[53:40] If you expect people to pay you for your thoughts and not to
+[53:44] just steal them,
+[53:45] you should probably offer other people in the world the same
+[53:48] courtesy.
+[53:50] Now it turns out that I think you can actually get these for
+[53:52] free because all three of these books are O'Reilly and I think
+[53:55] O'Reilly has a student subscription
+[53:58] maybe through the library that allows you to just get these and
+[54:01] you don't have to pay for them.
+[54:02] It's not in physical forms. If you want them in physical
+[54:05] form, which maybe you don't.
+[54:07] You do have to buy those.
+[54:08] And maybe you want a more convenient electronic access.
+[54:11] If you do,
+[54:12] spend the,
+[54:13] they're not traditional textbooks.
+[54:15] They're not hundreds of dollars each.
+[54:16] They're tens of dollars each.
+[54:18] So they're not super expensive.
+[54:22] Lecture, no formal attendance policy.
+[54:23] This has always been true.
+[54:25] It has to be true this semester because there are twice as many
+[54:27] of you as there are seats in this room.
+[54:30] I'm doing, I don't like doing that.
+[54:32] If I had a choice, I wouldn't be doing that, except that I am on
+[54:35] sabbatical in the winter and I am not teaching this course, and
+[54:37] as far as I know, no one else is.
+[54:39] So if I'd only taught it to the people who could sit in this
+[54:41] room,
+[54:43] then there are only 120 students who are gonna take it this year,
+[54:45] instead of the 360 I normally do,
+[54:48] I'm gonna try and get the 240 this semester and we'll call it
+[54:50] a day.
+[54:53] So I'm not happy about it, but it is what it is.
+[54:58] I'm thinking about putting up a system so that if you're the
+[55:01] person like,
+[55:02] okay, I'm here today, I'll probably be here next week,
+[55:05] but I kind of know by the time, like,
+[55:07] fall break has happened, you're not going to see me again.
+[55:11] It's okay,
+[55:12] we record them for a reason,
+[55:14] but I might set up a system so that if you know you're just not
+[55:16] going to be here,
+[55:17] because there are some people in the virtual section who would
+[55:19] like to physically be here,
+[55:21] and so we'll sort of make,
+[55:22] like, I already have room for about 10 or 12.
+[55:25] Just as of today,
+[55:26] I'm probably a little bit farther than that.
+[55:28] Questions are welcome and expected.
+[55:31] I mentioned this earlier.
+[55:32] I really love,
+[55:33] in fact,
+[55:34] the questions are often the things that really tell me where
+[55:37] I'm going wrong.
+[55:39] You don't ask questions, I don't really know that.
+[55:42] And also questions often lead us into really fascinating
+[55:45] conversations that I'm not necessarily planning to have but
+[55:49] really add a lot of depth and color to the topic.
+[55:51] So absolutely love questions.
+[55:54] I'm also going to mention the Bagel rule.
+[55:57] The bagel rule dates back to a time well before any of you were
+[56:01] here.
+[56:02] So it used to be the case that the university allowed student
+[56:05] organizations to run food service operations.
+[56:08] And one of those student service operations was the HKN and IEEE
+[56:13] Bagel Stand that was over in the EECS building.
+[56:17] So they would sell bagels in the morning.
+[56:20] I think they sold donuts too.
+[56:22] And so I had instituted a rule way back when that I still
+[56:25] adhere to,
+[56:26] that when I make a substantive written mistake,
+[56:30] and I will,
+[56:32] the first student who catches the substantive written mistake
+[56:35] will be entitled to a bagel at the next lecture.
+[56:38] Of your choice, I will stop a Panera and buy it, including
+[56:42] cream cheese.
+[56:44] It'll happen.
+[56:45] I usually give out about two to five bagels a term,
+[56:49] so expect it, pay attention.
+[56:52] And part of that is just an acknowledgement that I am also
+[56:54] fallible. I get stuff wrong.
+[56:57] I mean, I'm getting better at getting this stuff right,
+[56:59] but there's still gonna be some mistakes.
+[57:01] And so when we find them,
+[57:03] let's find them early.
+[57:06] Discussion sections, the main, we are having discussion, the
+[57:08] first discussion section in keeping with tradition is not
+[57:11] this week, but next week.
+[57:13] The main goals of discussion sections are exploring the
+[57:15] project specifications,
+[57:17] architectural sort of designs of solutions, go idioms,
+[57:21] recap and recast lecture material, questions for your
+[57:23] understanding and ours and also there are going to be some weeks
+[57:27] where we don't hold formal discussion sections and that
+[57:29] time will just be turned into extra office hours.
+[57:33] Attendance at discussion sections it's not mandatory but
+[57:36] it is strongly encouraged and in fact my IAs you know when I have
+[57:40] when I when I get to the end of the semester and I'm assigning
+[57:42] grades one of the things I'll do for people who are close to but
+[57:46] not quite at a border is I'll send those names around to IAs
+[57:49] and if they recognize those students from being at
+[57:51] discussion section regularly, that gives me a little more
+[57:54] incentive to bump somebody over a line.
+[57:56] So I don't formally keep track of it,
+[57:58] but it can play a role.
+[58:01] So I do really strongly encourage you to attend,
+[58:04] not only because you get to be
+[58:07] in a in-person conversation with the IAs, but also an in-person
+[58:12] conversation with each other.
+[58:14] So I haven't done this in a long time, but I'll say this now.
+[58:17] If I were King and totally in charge of the computer science
+[58:22] curriculum at the University of Michigan, I would forbid laptops
+[58:25] and personally owned devices.
+[58:27] You cannot have them. The only way you can do your
+[58:29] work is to come into a King lab and do it.
+[58:33] Why do I say that?
+[58:34] Because I learned more sitting in the basement of Evans Hall as
+[58:38] an undergraduate
+[58:40] watching other people work.
+[58:43] I learned more about debugging,
+[58:45] about the tool chain, about effective compilation,
+[58:48] about being productive.
+[58:50] I learned,
+[58:51] I shared an office as a grad student with the person that I
+[58:56] believe is the very best debugger I have ever met.
+[59:01] And I got to watch him do it for years.
+[59:03] Like this guy was amazing.
+[59:06] He was a bloodhound, it was unbelievably good.
+[59:08] And learning,
+[59:09] those are techniques I don't learn myself, I learn it from
+[59:12] watching other people.
+[59:13] So being in discussion section gives you a chance to hear what
+[59:16] other people are thinking, which helps develop your own thinking.
+[59:18] That's actually a pretty useful thing.
+[59:20] And it only happens by happenstance.
+[59:22] You can't plan it. It doesn't work that way.
+[59:26] Office hours, I'm always available after class.
+[59:28] There will be a formal schedule coming.
+[59:30] I think the IAs are probably starting to populate the
+[59:33] schedule now. I will put mine in too.
+[59:36] We're probably going to aim for coverage rather than depth,
+[59:40] because for a variety of reasons, office hours don't tend
+[59:43] to be overwhelmed in 491 and we'll see part of why so I think
+[59:49] being available is probably more important than providing high
+[59:52] throughput but we'll see I can adjust that as the time the
+[59:55] semester goes unfolds.
+[59:57] There are four projects.
+[59:59] First one's relatively straightforward although it's
+[1:00:01] new and a little bit more interesting than the old first
+[1:00:04] project and more in line with the other stuff you're gonna do
+[1:00:07] so I bumped up the credit for the first project a little bit.
+[1:00:12] I have what's called a mastery policy.
+[1:00:15] So the project is due when it's due,
+[1:00:16] there are no late days,
+[1:00:18] there are no extra submissions,
+[1:00:19] none of it.
+[1:00:20] You get one submission a day,
+[1:00:22] it's due on the day it's due,
+[1:00:23] end of discussion,
+[1:00:24] period, end of story.
+[1:00:26] However,
+[1:00:27] that's just for full credit.
+[1:00:29] You can submit it up to, I think I've got it the day, I think
+[1:00:32] it's December 18th. You can submit any project up to
+[1:00:36] December 18th and get up to 80% of the total credit for the
+[1:00:39] project.
+[1:00:40] Because I don't really care when you do it.
+[1:00:42] I mean,
+[1:00:42] you should get some credit for doing it on time.
+[1:00:45] But I care much more that you actually do it.
+[1:00:48] Because that's where the real learning happens in this course,
+[1:00:51] is wrestling with the material in the projects.
+[1:00:54] So it's called productive struggle.
+[1:00:57] So I want you to do it.
+[1:00:58] And I don't want it to be, you know, if something happens and,
+[1:01:01] you know, you're sick on the last couple days of a project,
+[1:01:04] whatever,
+[1:01:05] I mean, also talk to, if that happens, talk to me, I might be
+[1:01:07] able to make an allowance,
+[1:01:08] but if you just get overloaded,
+[1:01:11] you know, you've got a couple different projects that are
+[1:01:13] landing at the same time and you just can't get to them all,
+[1:01:16] that happens,
+[1:01:17] fine,
+[1:01:18] do it later, get 80% and move on,
+[1:01:20] no problem.
+[1:01:22] All projects are entirely individual,
+[1:01:25] you are responsible for reading and following the collaboration
+[1:01:28] policy in the syllabus, which basically means you're not
+[1:01:32] talking to each other about structure,
+[1:01:34] about architecture,
+[1:01:36] about specific solutions.
+[1:01:37] You're not sharing test cases.
+[1:01:39] You're doing your work on your own.
+[1:01:42] You can talk about general go problems,
+[1:01:44] and you can talk to us. We're happy to talk to you about
+[1:01:47] potential architectures and what you're thinking about,
+[1:01:49] but not each other.
+[1:01:53] Also,
+[1:01:54] no AI for any project purpose at all.
+[1:01:58] You may not upload the specs to AI.
+[1:02:00] You may not upload your own code to AI.
+[1:02:02] You may not ask AI to generate test cases for you.
+[1:02:05] You may not ask the AI agent to test your system.
+[1:02:09] None of it.
+[1:02:10] I'll come back to why,
+[1:02:12] so there's a policy on AI as well.
+[1:02:14] That doesn't mean you can't make use of it in the class.
+[1:02:16] I know some students have used it to generate flashcards, which
+[1:02:20] turns out not to be very helpful in my class, but if you want to
+[1:02:22] do it, I'm not gonna tell you you can't.
+[1:02:25] Or for summarizing some of the topics,
+[1:02:27] like if you want to upload my slides,
+[1:02:29] go for it.
+[1:02:29] Don't care.
+[1:02:31] but not the projects,
+[1:02:33] not the projects.
+[1:02:35] If you have any questions about what tools are acceptable and
+[1:02:37] what things are acceptable, just ask us.
+[1:02:39] Happy to tell you.
+[1:02:41] Talked about this, submissions once per day period,
+[1:02:44] full credit on deadline in the late days.
+[1:02:46] One more interesting thing.
+[1:02:47] We're going to give you almost all of the test cases.
+[1:02:50] In fact, you're gonna pretty much have test cases in your
+[1:02:52] hand that will get you to 80%.
+[1:02:54] They're not hidden.
+[1:02:55] I'm not trying to trick you.
+[1:02:57] I want you to be able to learn the stuff and like it is so
+[1:03:01] frustrating.
+[1:03:02] We're gonna have a little of this
+[1:03:04] because I will not tell you anything about the hidden test
+[1:03:06] cases when there are some.
+[1:03:07] Like literally nothing.
+[1:03:09] I will not give you any hints,
+[1:03:10] I will not tell you anything,
+[1:03:11] other than I might say,
+[1:03:13] here are some things that lots of students get wrong, but it
+[1:03:15] won't be connected to any specific test case.
+[1:03:18] But there's nothing more frustrating than a student who
+[1:03:20] desperately wants to solve that test case and not being able to
+[1:03:22] just tell them.
+[1:03:24] But I want to do that because we're adults.
+[1:03:26] Let's not do that.
+[1:03:29] One of the things that you will want to do is read and
+[1:03:32] understand them because they tell you a lot about how these
+[1:03:35] systems work
+[1:03:36] and expand them.
+[1:03:38] And in fact,
+[1:03:38] when we get to project, I think either two or three,
+[1:03:42] I will give you the framework for one of the hidden test cases
+[1:03:46] that you could build yourself.
+[1:03:47] I'm just not gonna give you it
+[1:03:49] because the building it is actually kind of interesting.
+[1:03:54] Two exams. There will be a midterm Monday,
+[1:03:57] October 24th in the evening,
+[1:03:59] in person, on paper,
+[1:04:01] no devices at all. That includes not listening to
+[1:04:03] music,
+[1:04:04] et cetera. Question?
+[1:04:07] Yeah,
+[1:04:07] I'll be able to get the calendar now since October 24th is a
+[1:04:10] Saturday.
+[1:04:11] Oh,
+[1:04:12] cool.
+[1:04:13] Well, I'll have to figure out what that day that is.
+[1:04:15] So it's whatever the 18th plus five is.
+[1:04:19] Wait,
+[1:04:20] October 24th, 26th is a Saturday?
+[1:04:23] Is the 18th a Monday or a Tuesday?
+[1:04:26] Because the 18th is part of fall break.
+[1:04:28] The first Monday after fall break.
+[1:04:32] 26th.
+[1:04:35] 26th.
+[1:04:36] That's a Twizzler.
+[1:04:40] So that's not a substantive error, it's a Twizzler.
+[1:04:43] I'm not gonna ask you to show up on a Saturday.
+[1:04:45] Monday, October 26th. We will not schedule lecture
+[1:04:48] that day. If you have a conflict,
+[1:04:49] can't do it at seven o'clock, You can come to this room at
+[1:04:52] 10.30 and take it then.
+[1:04:54] No problem.
+[1:04:56] The final is December 17th, 10.30
+[1:04:58] to 12.30, period.
+[1:05:01] Closed book, no devices.
+[1:05:02] One page of notes, two sided, both sides.
+[1:05:07] I'm not gonna reschedule exams for conflicts.
+[1:05:10] So importantly,
+[1:05:11] if you are taking another class
+[1:05:14] that meets at 10 or 10.30 on a Monday, you have assigned
+[1:05:18] the same final exam time you have to pick one or the other
+[1:05:24] not both unless you can talk the other faculty member into giving
+[1:05:27] you a break but I I just can't do it and so the our final
+[1:05:33] is on the 17th at 1030
+[1:05:38] grading projects so the projects are worth about 75% of the total
+[1:05:42] project The first one's worth about half of the others.
+[1:05:46] Exams, first exam, the exams are not punitive.
+[1:05:49] They're not designed to be super heavy.
+[1:05:51] I don't want them to be super heavy.
+[1:05:54] First exam's 10%, the second one's 15.
+[1:05:56] The second one is cumulative,
+[1:05:57] covers everything.
+[1:05:59] In the worst case,
+[1:06:02] your absolute worst grade will be determined by the straight
+[1:06:05] scale of your points.
+[1:06:08] And in particular that means,
+[1:06:09] if you have 70% or above at the end of the semester, you are
+[1:06:12] guaranteed to pass EECS 491 with at least a C.
+[1:06:16] Might be better,
+[1:06:17] won't be worse.
+[1:06:18] If you have an 80%, you are guaranteed at least a B minus.
+[1:06:21] If you have a 90%, you are guaranteed at least an A minus.
+[1:06:26] I will curve more generously if necessary if it turns out that
+[1:06:29] exam performance is really, really dismal,
+[1:06:31] which it probably won't be and it hasn't typically been,
+[1:06:34] although last semester was kind of interesting.
+[1:06:35] I'll talk about it in a minute.
+[1:06:39] If I need to curve it up a little bit because I wrote an
+[1:06:41] unusually hard exam or did something really terrible, then
+[1:06:44] I will do that.
+[1:06:49] Questions about logistics, that's the logistics stuff.
+[1:06:52] Is the midterm at 7 a.m. or 7 p.m.?
+[1:06:53] P.m., no,
+[1:06:55] God no, I am not gonna be here at seven o'clock in the morning,
+[1:06:58] no.
+[1:06:59] No,
+[1:07:00] thank you.
+[1:07:01] Having kids did turn me into a morning person, but I know that
+[1:07:04] until I had kids,
+[1:07:06] I was not a morning person, and I believe that's the common
+[1:07:08] case,
+[1:07:09] so no.
+[1:07:10] Yeah, question.
+[1:07:12] There's another one.
+[1:07:13] Yes.
+[1:07:14] What is that rating?
+[1:07:16] Is the partial credit pro-rated, like if you get 50% before the
+[1:07:20] deadline and then get the last 50% after, is that what it is?
+[1:07:23] No, no, it's total,
+[1:07:24] if you don't make 80% on the deadline day, you can get up to
+[1:07:30] 80% any time after that. Up until the day after the final
+[1:07:33] exam. I gotta call it at some point.
+[1:07:38] One other thing, if something is going wrong in your life,
+[1:07:41] so I do want to say this before we talk about the AI stuff.
+[1:07:44] If something is going sideways in your life and it happens,
+[1:07:49] come talk to us,
+[1:07:51] we'll see if we can work something out.
+[1:07:53] Like if you're really sick,
+[1:07:57] something happens that's unexpected that throws you
+[1:07:59] completely for a loop,
+[1:08:01] let me know. And partly because I've been
+[1:08:03] through some of that stuff,
+[1:08:05] right?
+[1:08:05] In fact,
+[1:08:06] one of the things that we'll get to as the course unfolds is what
+[1:08:10] some of the stuff looks like.
+[1:08:12] You know, I've had periods in my life where getting stuff done
+[1:08:15] has been really, really hard.
+[1:08:17] And I know it happens.
+[1:08:18] If you're in that situation, come talk to us.
+[1:08:20] We can probably work something out.
+[1:08:22] Because I don't assume we're all in the same place all the time.
+[1:08:28] Okay? And in particular, I'm a really big passionate advocate
+[1:08:33] for taking care of ourselves mentally and emotionally.
+[1:08:36] That's gonna be a big part of this.
+[1:08:39] So be mindful of that.
+[1:08:41] Other logistics questions.
+[1:08:46] All right.
+[1:08:49] Let's come back to the AI conversation.
+[1:08:55] So what is the purpose of a CS curriculum? Well, it's a
+[1:08:57] discipline of thought.
+[1:08:59] It's learning tools to overcome being bad at the first thing and
+[1:09:02] guidance in developing a voice of expression.
+[1:09:06] Discipline, any discipline,
+[1:09:08] whether it's a discipline of thought,
+[1:09:09] a physical discipline,
+[1:09:10] a spiritual,
+[1:09:11] if you happen to have a spiritual discipline,
+[1:09:14] if you have a daily prayer ritual,
+[1:09:16] if you happen to have an emotional discipline, you
+[1:09:18] meditate,
+[1:09:19] that could also be as part of your spiritual discipline as
+[1:09:21] part of mine.
+[1:09:24] Disciplines are connected to practices.
+[1:09:28] We don't really have a discipline that doesn't have an
+[1:09:30] associated practice.
+[1:09:37] So if you're physically training for a marathon, you don't do
+[1:09:40] that by going to the gym and watching people on the
+[1:09:43] treadmill.
+[1:09:45] That's not how it works. Now, I've never run a marathon.
+[1:09:47] I've run a couple halves, which is probably surprising, but
+[1:09:50] there was a time when I was in shape.
+[1:09:53] So disciplines require a practice.
+[1:09:57] In computer science,
+[1:09:58] the practice is the projects.
+[1:10:01] That is the practice.
+[1:10:04] Now, we're definitely seeing evidence of over-reliance on AI,
+[1:10:09] and I probably saw it for the first time discernibly in the
+[1:10:13] winter.
+[1:10:15] What does it look like? It looks like this.
+[1:10:17] There's slight increases in project scores.
+[1:10:19] They're not huge,
+[1:10:21] and for this class what it really means is a slightly
+[1:10:23] higher percentage of students who are getting to about 90 or
+[1:10:26] better by the deadline.
+[1:10:31] And real decreases in the exams,
+[1:10:33] and that absolutely happened last semester.
+[1:10:35] I was very surprised by it.
+[1:10:37] My exams are pretty stable.
+[1:10:39] They're not the same,
+[1:10:40] but they're all kind of isomorphic,
+[1:10:43] and performance,
+[1:10:44] especially because I'm teaching 100 students minimum,
+[1:10:47] performance is pretty stable.
+[1:10:49] And the larger the class,
+[1:10:51] the more stable the performance tends to be.
+[1:10:53] And winter was also a 240 person class, which is on the large
+[1:10:56] side for 491.
+[1:10:58] There are two possible explanations for this.
+[1:11:01] One is, well, we get better at teaching the material.
+[1:11:05] Projects don't really change.
+[1:11:07] So one possible explanation for winter 2026
+[1:11:11] was that I taught the material much better than I used to,
+[1:11:16] so you were much better at doing the projects than you used to
+[1:11:19] be, but I also wrote a much harder exam, even more than
+[1:11:23] that,
+[1:11:25] and counterbalanced the fact that I'm such a much better
+[1:11:27] instructor than I was before.
+[1:11:30] That's one possible explanation.
+[1:11:33] The other possible explanation is that students are using AI
+[1:11:36] for too much, and they're outsourcing their thinking,
+[1:11:39] and you're outsourcing the discipline of thought.
+[1:11:44] Now the evidence I have for that, now it could be I was just
+[1:11:47] awesome and really mean on the exams,
+[1:11:49] totally possible.
+[1:11:50] However,
+[1:11:52] it's happened across several different courses at U of M.
+[1:11:54] I had this conversation with the 370 instructors.
+[1:11:56] I had this conversation with the 42 instructors.
+[1:11:59] I'm having this conversation with the 281 instructors and
+[1:12:02] we're all seeing the same thing.
+[1:12:05] All of the project heavy courses are seeing the same thing.
+[1:12:09] Project scores are going up a little,
+[1:12:11] exam scores are going down a lot.
+[1:12:14] It's not just here.
+[1:12:16] There was an article last year at Berkeley that the Berkeley CS
+[1:12:20] department is seeing an enormous number of people failing their
+[1:12:23] introductory sequence that didn't fail before.
+[1:12:25] It's just huge.
+[1:12:27] This growth,
+[1:12:28] suddenly.
+[1:12:29] What could explain it?
+[1:12:32] It's in other countries. The first reading,
+[1:12:34] I've never assigned this, because it's new, but there's a
+[1:12:36] study
+[1:12:37] that was done in China, I think from seventh grade through 12th
+[1:12:41] grade, that looked at AI use, performance on homeworks and
+[1:12:44] performance on exams.
+[1:12:46] And the punchline is,
+[1:12:48] again,
+[1:12:49] slightly better performance on the homeworks,
+[1:12:52] significant drops in exam performance,
+[1:12:55] and that correlates to how much time you're spending on the
+[1:12:59] projects and on the homeworks.
+[1:13:01] The less time you're spending on them, the more pronounced the
+[1:13:04] exam drop is.
+[1:13:06] Now if you're using AI and you're spending the same amount
+[1:13:08] of time on it, it turns out it doesn't really hurt you,
+[1:13:10] but I don't know how to tell you how to do that.
+[1:13:14] I just don't know.
+[1:13:16] So why are we in Michigan?
+[1:13:19] One of the things that always fascinates me about how places
+[1:13:21] talk about themselves is they tell you based on how they talk
+[1:13:25] about themselves what's important.
+[1:13:28] Now one of the things that's funny about Michigan, it's the
+[1:13:30] only school in the United States whose fight song assumes victory
+[1:13:32] has already occurred.
+[1:13:35] Most of them are like, we're gonna try hard,
+[1:13:37] we're probably gonna win,
+[1:13:38] we're gonna really try hard. Michigan's like,
+[1:13:41] yo dude, the game hasn't even started.
+[1:13:42] you lost you just don't know it yet even if you don't lose this
+[1:13:45] game you've lost because we're Michigan right we are accused of
+[1:13:50] being arrogant not without some justification but we also have
+[1:13:53] some justification in the leaders the best thing people
+[1:13:55] come here because they want to be leaders in whatever their
+[1:14:01] definition of leader is when they leave that's partly why
+[1:14:04] you're even if you don't know it does not happen automatically
+[1:14:10] now you might have some extra charisma or some skills or
+[1:14:15] something that you've developed before you get here that helps
+[1:14:17] you on that path but it requires effort and work
+[1:14:23] so I'm gonna really strongly encourage you and you know we
+[1:14:26] may if I have to send people to the Honor Council I will I'm not
+[1:14:30] above that I'm I'm hoping I'm not gonna have to do that very
+[1:14:34] much because one of the other things that I know having talked
+[1:14:37] to both my staff and other students in the course is that
+[1:14:39] you all hate AI,
+[1:14:42] but you think you have to use it, and it isn't true.
+[1:14:46] Most of these projects were written before generative AI was
+[1:14:49] a thing.
+[1:14:49] Students completed them in reasonable amounts of time
+[1:14:51] without having to pull all-nighters.
+[1:14:54] They are not too hard.
+[1:14:58] So this is this is part of what I'm hoping that we can do.
+[1:15:04] So engage with this material and it will be frustrating,
+[1:15:08] I'm not gonna lie.
+[1:15:10] Programming is frustrating.
+[1:15:14] This stuff is particularly frustrating because the material
+[1:15:16] is pretty challenging,
+[1:15:18] but coming out the other side you have a deep and abiding
+[1:15:22] appreciation for the fundamental truths of distributed systems
+[1:15:25] which again is just how people work and if you ever plan to
+[1:15:31] work with other people these skills turn out to be super
+[1:15:34] important and so part of what I'm doing
+[1:15:40] is I'm appealing to your better nature and frankly your ego that
+[1:15:45] says this is what you want and if that's what you want I know
+[1:15:50] how not to I don't necessarily know how to get it, but I know
+[1:15:54] how not to get it.
+[1:15:56] And again, it's fine. Look, if that's not where you
+[1:15:59] are,
+[1:16:00] and for whatever reason you just need to get through this and get
+[1:16:03] out of here, I do not begrudge you that,
+[1:16:07] but you are missing an opportunity because you don't
+[1:16:09] get to go back and do this point in your life again.
+[1:16:12] Even if you never leave, I have never left a university since
+[1:16:16] 1986 or 87,
+[1:16:20] fall of 87.
+[1:16:24] I still don't get to do what you get to do,
+[1:16:28] which is define what you want the rest of your professional
+[1:16:33] and personal life to look like. That's what this moment is for
+[1:16:37] you.
+[1:16:38] You don't get a do-over. Well, you kind of do, but it's
+[1:16:40] costly.
+[1:16:42] and most people don't take it.
+[1:16:46] So,
+[1:16:48] as you're doing this,
+[1:16:50] this first one's gonna be really hard.
+[1:16:52] It's gonna be easy to get bogged down into the details of
+[1:16:55] whatever system or technique we're talking about,
+[1:16:58] and get lost,
+[1:17:00] and you're not even gonna not see the forest for the trees,
+[1:17:04] you're not gonna see the forest for the patterns of veins on the
+[1:17:08] leaves on the trees.
+[1:17:10] Try to keep the forest in mind. And I'll try and bring us back
+[1:17:13] periodically to that.
+[1:17:14] Because it's the big picture that helps all of this stuff
+[1:17:17] coalesce and congeal,
+[1:17:19] and helps us understand what's really going on.
+[1:17:22] Look for patterns.
+[1:17:23] There will be patterns in these systems that come up over and
+[1:17:26] over and over again. We're going to build some stuff.
+[1:17:28] We're also going to look at some examples of commercial systems
+[1:17:32] that have been successful.
+[1:17:34] But more importantly,
+[1:17:35] engage in the work.
+[1:17:38] You're spending a lot of money to be here.
+[1:17:40] Now it might not be your money,
+[1:17:42] but you're spending someone's money.
+[1:17:44] More importantly,
+[1:17:46] you're spending a lot of time.
+[1:17:48] And again, if you have something else to spend your time on that
+[1:17:51] is more important to you,
+[1:17:52] that is okay.
+[1:17:53] But if this is important to you,
+[1:17:56] it is worth your time,
+[1:17:58] and hopefully I will make it worth your time
+[1:18:00] by doing what I can to do that.
+[1:18:06] And have fun.
+[1:18:07] This is a fun class.
+[1:18:09] I usually get this comment a lot, that people had a lot more
+[1:18:11] fun in this class than they expected,
+[1:18:13] because the material's kind of cool and exciting.
+[1:18:16] So with that, I will see you. We will get the ball rolling on
+[1:18:19] Wednesday, and I'm around for questions if anyone has them.

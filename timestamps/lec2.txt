@@ -1,0 +1,1583 @@
+[00:01] All right.
+[00:05] Welcome to the first substantive lecture.
+[00:09] So last time we talked it was really just the introduction of
+[00:12] the topic.
+[00:14] Talked about what is a distributed system,
+[00:17] informally it's a group of nodes cooperating to provide a single
+[00:20] service,
+[00:21] a little bit more formally it's a group of nodes that are
+[00:24] separated,
+[00:25] communicate only through messages and through no shared
+[00:27] state,
+[00:28] those messages have delay,
+[00:30] and they do not share fate. What shared fate means is that
+[00:33] if any particular event causes one of the machines to fail,
+[00:37] it does not necessarily cause the rest of them to fail.
+[00:40] That one's actually a little bit loose.
+[00:42] The place where shared fate can show up.
+[00:45] It's not so much physical failures.
+[00:47] You put machines in different data centers so that if the
+[00:50] meteor hits one of the data centers,
+[00:52] the others probably still run.
+[00:54] But if they all have the same bug and experience the same
+[00:57] input, then they might all fail corresponding to the same input.
+[01:02] The primary potential advantages to doing this are first
+[01:05] resilience,
+[01:07] so rather than have a service that is only as good as one
+[01:10] machine's ability to not fail,
+[01:13] you have a service that appears to never fail at least in some
+[01:17] limits.
+[01:18] And scale, you can do something bigger than you can do on any
+[01:21] single machine.
+[01:23] The main challenges for this from the point of view of
+[01:25] designing systems to work correctly are that they are
+[01:28] concurrent,
+[01:29] inconsistent,
+[01:30] and ambiguous,
+[01:32] all of which will turn out to be pretty significant challenges
+[01:34] for us in the semester.
+[01:37] And finally, any distributed system has three goals that are
+[01:40] in tension with one another.
+[01:42] You can always give an answer.
+[01:45] You can make sure that any answer you give is correct,
+[01:48] or you can be fault tolerant, and you can't be all three of
+[01:52] those at the same time.
+[01:53] And the short reason why is if you are, if you only have access
+[01:57] to a minority of the machines providing the service, they
+[02:02] can't know the genuine answer to any particular question because
+[02:06] the majority that you can't talk to might have changed the
+[02:09] answer.
+[02:10] If that happens, the minority either has to not answer or
+[02:14] answer in a way that's potentially incorrect.
+[02:17] And we'll formalize this a little bit more as we go.
+[02:21] Today, I'm going to sort of give us a model for computation.
+[02:24] What is the 491 model for computation?
+[02:30] How do we think of computation?
+[02:33] Also,
+[02:33] the 491 model for communication,
+[02:36] and importantly, what is our model for failures for both of
+[02:39] those? And it's going to be quite specific.
+[02:42] It is not fully general. There are gonna be some failures
+[02:45] we do not consider,
+[02:46] some of them because they're really easy to fix,
+[02:48] others because they're really hard to fix, and we just won't
+[02:51] have time this semester to get to the solution to that.
+[02:56] We'll also give a motivation for why
+[02:59] any particular distributed service has to be concurrent in
+[03:03] order to be reasonably efficient.
+[03:06] And then we'll talk a little bit about why concurrency is a
+[03:08] challenge.
+[03:09] Some of you probably know why concurrency is a challenge, but
+[03:11] I don't assume that you do.
+[03:14] Before I get started on today's material, does anyone have any
+[03:16] questions about anything we've talked about up until this
+[03:18] point?
+[03:29] Okay,
+[03:29] before we get too far into this, I want to give a warning or a
+[03:34] caution, maybe it's a caution, not a warning, for anyone who
+[03:37] has previously taken EECS 482.
+[03:40] First, our communication model is different and actually
+[03:43] simpler.
+[03:44] So the communication model we have in 491 is somewhat less
+[03:48] difficult to deal with than the communication model in 42,
+[03:52] so that's kind of nice.
+[03:53] Second thing, goroutines are not exactly threads.
+[03:56] You don't know what a goroutine is yet,
+[03:57] we will soon,
+[03:59] and we'll talk about them. But our unit of concurrency, our
+[04:02] unit of concurrent execution,
+[04:04] is not exactly threads and in fact goroutines are a little
+[04:08] bit,
+[04:11] you might worry about creating a thread, you should never worry
+[04:14] about creating a goroutine.
+[04:15] Maybe that's the simplest way to put it.
+[04:17] The most important difference is that as we think about how to
+[04:21] deal with concurrency in this class.
+[04:23] Again,
+[04:23] if you haven't taken 42, this might not make any sense to you
+[04:25] and that's totally fine.
+[04:27] But if you have taken 42,
+[04:29] go routines should never share mutable state in this class.
+[04:34] Ever, ever, ever.
+[04:36] You might wonder how you could ever get anything done.
+[04:38] We'll see how to get something done.
+[04:41] But what's cool about that is with no shared mutable state,
+[04:44] you do not need locks.
+[04:46] and there are higher level synchronization mechanisms that
+[04:49] the language provides,
+[04:51] which I actually think are a little bit more pleasant to work
+[04:53] with.
+[04:54] And so I'll conclude with Epictetus'
+[04:56] quote, it is not possible to learn what you think you already
+[04:59] know.
+[05:02] All right, let's start talking about the models.
+[05:04] So the 491 node model, each working node in the system
+[05:08] whether it's a server or a client makes progress at some
+[05:11] unknown variable rate.
+[05:13] So the node is working,
+[05:16] it makes progress through its computational efforts.
+[05:19] It will eventually make progress, but we have no idea
+[05:22] how fast.
+[05:23] And even if it was fast before, it might not be fast now.
+[05:26] If it's slow now, it might be fast later.
+[05:29] Each working node does not share any state with any other nodes.
+[05:33] They don't have a file system in common, for example, that they
+[05:36] can both talk to.
+[05:37] If there is some common thing, it's some other distributed
+[05:42] service which, in turn,
+[05:44] works this way.
+[05:45] Every single working node has its own persistent and transient
+[05:48] storage.
+[05:49] Persistent storage is flash or disk or something else
+[05:53] that survives failures.
+[05:55] Transient storage is just memory or a cache or something that
+[05:58] doesn't survive a failure.
+[06:00] Every working node is connected to all of the other nodes by
+[06:03] something that we'll call the network.
+[06:07] Our node failure model is that nodes can temporarily fail.
+[06:13] When a node fails and recovers,
+[06:16] any persistent data,
+[06:17] which might have stored on disk or flash, et cetera, and is
+[06:20] known to have been stored there,
+[06:22] survives the failure,
+[06:24] but any transient data that happened to be in memory is
+[06:27] lost.
+[06:28] So if you didn't write it out to some persistent storage, it
+[06:31] isn't guaranteed to exist in the next second because failures can
+[06:36] happen at any particular time.
+[06:40] A little bit more on this question of failure.
+[06:43] Everything in our system in 491 is what's called fail stop.
+[06:48] So every node,
+[06:50] every component in a node,
+[06:52] every processor,
+[06:53] every disk,
+[06:53] block,
+[06:54] every memory byte,
+[06:56] every element in our system,
+[06:59] either if you ask it a question, and it will either answer
+[07:02] correctly or not answer at all.
+[07:05] So if you ask a processor in 491 what two plus two is, it will
+[07:08] always tell you four or it just won't answer.
+[07:11] It will never tell you five.
+[07:15] The alternative is called Byzantine failure.
+[07:18] The reason why is for something called the Byzantine General's
+[07:21] Problem,
+[07:22] which is the problem that poses this question.
+[07:24] And it's a very interesting model, right? And in the
+[07:28] Byzantine model, you can ask the processor to add 2 plus 2, and
+[07:31] it might give you 5.
+[07:34] And that's, or you can store a 6 in some memory location and read
+[07:37] it back and get a 7.
+[07:40] So, Byzantine models,
+[07:42] Byzantine failures are very, very interesting and completely
+[07:45] beyond the scope of what we're going to do in 491.
+[07:48] If you want to learn how to solve Byzantine failure,
+[07:51] probably need to take 591 or something else, or go off and
+[07:54] read, which is actually allowed.
+[07:57] Finally,
+[07:58] failures.
+[07:59] When a node failure happens,
+[08:01] the duration of that failure is finite but unbounded.
+[08:07] Finite means it will eventually recover.
+[08:10] Unbounded means what we have no idea when.
+[08:14] So we never consider permanent failures.
+[08:17] So if we have a node,
+[08:18] we never consider the case in which that node dies and never
+[08:21] comes back.
+[08:23] And we do that because persistent data persists.
+[08:25] disks,
+[08:26] we just can't know when the failure will end.
+[08:30] Now it turns out if you're like,
+[08:32] probably not 470,
+[08:35] maybe it's 3,
+[08:36] maybe it's 473,
+[08:38] if you're someone who builds actual hardware,
+[08:41] you might realize that persistent data that never fails
+[08:43] actually turns out to be a hard problem,
+[08:45] we're just going to assume that problem is solved for us.
+[08:48] If you write something out to the disk, it will always be
+[08:50] there.
+[08:55] Networking.
+[08:56] So that's our model for computation.
+[08:58] What about our model for communication?
+[09:01] And we're going to have a very abstract model for
+[09:03] communication. If you really want to know
+[09:05] what's going on,
+[09:06] take 489.
+[09:09] But for the purposes of 491,
+[09:11] the 491 network model is that we have this abstract network
+[09:16] and this network connects all pairs of nodes.
+[09:19] So every node is connected to every other node in the system.
+[09:25] Each pair of nodes are connected by two completely disjoint
+[09:29] one-way connections.
+[09:32] So the way A talks to B is completely separate from the way
+[09:36] B talks to A.
+[09:40] Every node might send message to any other node at any particular
+[09:44] time.
+[09:45] Like everything else in the 491 model of computation and
+[09:49] communication,
+[09:50] communication paths are fail stop.
+[09:54] If I send you a message, that message will either be delivered
+[09:57] correctly or not delivered at all.
+[10:01] So, in particular,
+[10:02] we do not worry at all about someone who's maliciously trying
+[10:05] to tamper with the network communication.
+[10:08] You want to think about that, go hang out with 388.
+[10:13] The community, any communication path can fail for arbitrary but
+[10:18] finite periods of time just like our nodes,
+[10:22] so network communication failures are unbounded but
+[10:26] finite which means eventually if I am trying to send you a
+[10:29] message, I will eventually be able to do it sometime before
+[10:33] the heat death of the universe,
+[10:35] but I don't know when.
+[10:38] Also,
+[10:39] in addition,
+[10:40] just like we can't predict the rate at which computation
+[10:43] unfolds and computation might unfold arbitrarily slowly,
+[10:48] messages can be delayed for arbitrarily long periods of
+[10:52] time.
+[10:52] A message that is delivered will eventually be delivered in some
+[10:56] point in the future, but we can't predict how far in the
+[10:59] future that point might be.
+[11:03] Finally, every single one of these paths is completely
+[11:06] independent of all of the others, which feels a little
+[11:08] weird, but turns out that if you can build a system that does
+[11:11] this correctly, you can build a system that does weaker versions
+[11:14] of this correctly.
+[11:16] And so there are two really important consequences of this.
+[11:20] It might be possible for A to send messages to B at the same
+[11:24] time that B cannot send messages to A because they're asymmetric.
+[11:30] It is also possible that A might be able to send a message to B,
+[11:35] B might be able to send a message to C, at exactly the
+[11:38] same time that A cannot send a message to C.
+[11:43] So they don't obey the triangle inequality.
+[11:45] Just because I can find a path through the network that is
+[11:48] successful,
+[11:49] doesn't mean that this particular communication will be
+[11:51] successful.
+[11:55] Now,
+[11:56] this is a much,
+[11:57] as I mentioned, this is a much cleaner model than the network
+[12:01] model we usually deal with when we're talking about systems
+[12:04] courses, because in general a network message could be lost, I
+[12:08] send a message, it isn't delivered,
+[12:10] it could be arbitrarily delayed,
+[12:12] it could be corrupted, I could send you a message, you could
+[12:15] receive something different than the thing I send you,
+[12:18] that could be by accident or by malice,
+[12:21] in general.
+[12:23] It could be duplicated. I can send you one message.
+[12:25] You could,
+[12:26] you might receive it twice.
+[12:29] I could also, in general, reorder messages.
+[12:31] I can send you the message A,
+[12:33] then I can send you the message B, and you might receive them in
+[12:37] general in the order BA.
+[12:40] Now it turns out some of these are relatively easy to solve,
+[12:43] and we are not going to think at all about the bottom three.
+[12:48] We will not worry about corrupted messages.
+[12:50] If I send you a message and you get it, you can believe it was
+[12:53] the one I sent you.
+[12:56] If I send you a message, you will only receive it at most
+[12:59] once.
+[13:01] You might not receive it at all, but you won't receive that
+[13:03] specific message twice.
+[13:06] And you can assume that if I send you any set of messages,
+[13:10] the subset that you receive will be received in the order that
+[13:14] that subset was sent,
+[13:18] okay.
+[13:19] Now it turns out again that the solving duplicated and reordered
+[13:24] messages is actually pretty straightforward.
+[13:26] Solving corrupted messages in the face of a malicious
+[13:29] adversary turns out to be harder.
+[13:31] Again you want to worry about hang out in 388.
+[13:37] I will sometimes use the word process and node
+[13:43] interchangeably.
+[13:45] So when I say the word process I usually mean a process running
+[13:49] on one server node.
+[13:52] Typically processes and nodes map one to one.
+[13:55] There one node runs one process so a node more formally
+[14:01] a node is a machine on which one or more processes may run a
+[14:05] process is some computational component of the system which
+[14:08] has a more formal definition that isn't actually that
+[14:11] important to us in 491 a process may itself be concurrent
+[14:16] we'll talk about what that means but I'm just gonna put a pin in
+[14:20] that for now it turns out if you two processes,
+[14:26] two 482 processes running on one node, you can model that as two
+[14:31] processes on two nodes.
+[14:34] And it kind of just works.
+[14:37] The node of the network model collectively will be referred to
+[14:40] as the X491 failure model. So if I ask you for example on
+[14:44] an exam question,
+[14:46] under the X491 failure model,
+[14:49] what I is a world in which nodes and networks are fail stop,
+[14:55] failure independent,
+[14:57] which means one failure doesn't have anything to do with any
+[15:00] other part of the system,
+[15:02] and failures are always finite but unbounded.
+[15:07] Questions so far?
+[15:11] It's a pretty straightforward model.
+[15:12] It is a little bit cleaner and easier to think about than maybe
+[15:17] the model you have in your head for how some of this stuff
+[15:19] works. and that's just to make
+[15:20] everything else possible.
+[15:28] Now, one of the things about network messages is that they're
+[15:31] very, very unpleasant,
+[15:33] right? The only thing I am capable of doing with the
+[15:37] network
+[15:38] is sending a set,
+[15:42] sort of a chunk of bytes to you.
+[15:46] And those bytes are completely uninterpreted by the network.
+[15:50] So there are some pretty interesting questions about how
+[15:52] to deal with this.
+[15:54] One question is, how do we pack data into messages? So if I want
+[15:56] to send you the contents of a structure,
+[16:00] how do I turn that into a message?
+[16:02] Particularly because the two machines on each end of a
+[16:05] communication may represent integers completely differently.
+[16:09] One might be big-indian, the other might be small-indian.
+[16:13] How does the receiver getting one of these messages just turn
+[16:16] it into some data structure that it cares about.
+[16:19] How do,
+[16:20] if I send you a request and you send me a response, how do I
+[16:23] match the message you send me in response to the request I sent
+[16:27] you?
+[16:28] All of these turn out to be kinda interesting problems.
+[16:33] However,
+[16:33] they're not that interesting
+[16:35] and they're not interesting enough for us to understand
+[16:38] deeply how they work in 491, at least here.
+[16:41] There are some other distributed systems classes that do spend,
+[16:44] like, a week or two on this.
+[16:46] If I were to do that, I wouldn't get to some of the cooler stuff
+[16:48] that I really want to do.
+[16:51] So, instead, we use something called a remote procedure call
+[16:54] abstraction.
+[16:56] So, again, we're not going to talk deeply about how to build
+[16:59] remote procedure call.
+[17:01] We're just going to assume that remote procedure call is a thing
+[17:04] that exists for us to use.
+[17:07] Now, in a remote procedure call, a network interaction of I asked
+[17:12] a service to perform some operation,
+[17:15] the service performs that operation and tells me the
+[17:17] operation is complete, possibly with some arguments and possibly
+[17:20] with some results.
+[17:22] That network interaction,
+[17:25] request with arguments, perform an operation,
+[17:27] return with results,
+[17:28] is roughly equivalent to a function call,
+[17:32] which is why it's called remote procedure call.
+[17:35] It's a procedure call that happens to be remote.
+[17:40] Now for a remote procedure call,
+[17:42] the way this works is that a caller,
+[17:44] running on some distinct node,
+[17:47] wants to invoke some operation F on a call E,
+[17:51] which is usually some other distinct node.
+[17:53] It doesn't have to be a distinct node, but typically it is.
+[17:56] The caller supplies the arguments
+[17:59] and supplies space for return values.
+[18:03] Then the caller calls the function F on the call E,
+[18:08] using some magic underlying mechanisms that the RPC
+[18:12] subsystem knows how to do.
+[18:14] And then the caller waits for the callee to respond.
+[18:19] The callee performs that operation F,
+[18:23] then the callee returns its result to the caller
+[18:26] through the network, and then that result will be deposited in
+[18:29] the space the caller provided.
+[18:31] And then the caller gets to continue with the results of the
+[18:35] operation in the space that it provided.
+[18:39] Programmers,
+[18:40] yes, question.
+[18:41] What do you mean when you say that the caller's providing
+[18:44] space for return values?
+[18:46] Yeah, so when I invoke a remote procedure call,
+[18:49] instead of receiving a return value like I would from a
+[18:53] function,
+[18:54] I have to give it a buffer that it will fill with the return
+[18:57] values.
+[18:58] And this is all in the caller side process? It's all in the
+[19:00] caller side process, yeah.
+[19:05] Programmers mostly understand this because it looks mostly
+[19:08] like a regular function call.
+[19:09] Now that assumes programmers understand function calls.
+[19:12] We're going to just take that one as a given question.
+[19:16] So going back to returning the results,
+[19:18] when it returns the result, is it returning the requests with
+[19:23] the response space filled in?
+[19:26] You can think of it that way.
+[19:28] It turns out it just sends the response back because you don't
+[19:30] need to send the request back. I know what the request was
+[19:32] because I sent it to you.
+[19:34] So it's giving it like here's how much space that the response
+[19:38] should take up and then...
+[19:40] Right. So what basically happens is I
+[19:41] send the arguments,
+[19:42] there's something called marshaling, which converts the
+[19:45] arguments into a network representation.
+[19:48] The arguments arrive plus the name of the function we're
+[19:51] trying to invoke at the server.
+[19:53] It unmarshals the arguments into a local structure,
+[19:56] then passes those arguments to the function that was named.
+[19:59] It takes the return value, it marshals that, sends it back.
+[20:03] The RPC system unmarshals that and puts it in the buffer that
+[20:06] the caller provided.
+[20:11] Yes.
+[20:12] So,
+[20:13] is this similar to like RDMA conceptually in that the
+[20:16] colleague writes the response directly to the caller's memory?
+[20:19] Um,
+[20:22] I would not,
+[20:25] RDMA,
+[20:26] so RDMA makes me a little nervous because I don't,
+[20:31] I'm not able to actually directly modify arbitrary memory
+[20:36] on the server,
+[20:37] but you can think of it as
+[20:40] I'm just passing you the arguments, just like we pass the
+[20:42] arguments in any way,
+[20:44] right?
+[20:45] If I was calling a local function I would pass the
+[20:47] arguments and I would do that either by pushing them on the
+[20:49] stack or sticking them in memory somewhere and giving you a
+[20:52] pointer.
+[20:53] Here, instead of pushing them on a stack, I'm sending them to you
+[20:56] in an envelope.
+[20:57] And then you open the envelope, you go, oh, here are the
+[20:59] arguments to the function,
+[21:00] I know how to call that.
+[21:05] There are some complications,
+[21:07] unsurprisingly,
+[21:08] because it's not just a function call, it's a remote procedure
+[21:10] call.
+[21:11] It's not exactly a function call because there are two things
+[21:14] that an RPC has to provide that a normal function call
+[21:20] wouldn't have to do.
+[21:22] The first is I need a way to find the callee.
+[21:27] If I'm calling a function that's part of my address space, I just
+[21:30] need to know the address of the function.
+[21:33] This function isn't part of my address space.
+[21:35] It lives on some other machine, and I definitely don't want to
+[21:38] be mucking directly with that other machine's address space.
+[21:40] So I need some way to get to the callee.
+[21:44] And then I also need some way to communicate to the caller that
+[21:49] the remote procedure call failed.
+[21:52] And that doesn't mean the thing that I was invoking,
+[21:56] the semantics of that operation were violated and the operation
+[21:59] says the operation failed.
+[22:01] It means the act of invoking the call and getting the response
+[22:05] failed.
+[22:08] So let's talk about each one of these in turn.
+[22:09] How do we find the callee?
+[22:12] Now,
+[22:13] this next little bit is really just so you kind of know what's
+[22:16] going on. For the purposes of 491, you
+[22:18] won't get into this deeply.
+[22:21] But the first thing to know is that nodes are implicitly named
+[22:24] by a network address.
+[22:28] Network address is usually a hexadecimal number.
+[22:31] There are two different versions.
+[22:33] There's one that's a short version, one that's a long
+[22:35] version. I'll use the short version
+[22:36] because it's easier to type.
+[22:38] For example,
+[22:39] Lamport's short version address is 141.212.115.203.
+[22:46] And I checked, it still is true.
+[22:50] So, if I want to send a message to Lamport,
+[22:53] I have to know this, I have to somehow know this number.
+[22:57] And it turns out there's a mechanism in the internet that
+[22:59] if I give it the name lamport.ecs.umich.edu,
+[23:03] will spit me back that number. That's called the domain name
+[23:06] service.
+[23:09] Now,
+[23:10] Lamport itself might have more than one network endpoint.
+[23:17] It's not just everything sent to Lamport goes to all of the
+[23:21] processes running on Lamport.
+[23:23] There could be different processes or several different
+[23:25] endpoints within one process.
+[23:27] We won't really talk too much about different processes on
+[23:30] OneNote in this class, but we absolutely will have one process
+[23:34] that has more than one active network endpoint at a time.
+[23:40] Now the endpoints are named by the address,
+[23:42] which we already know,
+[23:45] followed by a port,
+[23:48] which is a 16-bit number,
+[23:50] typically.
+[23:51] So one way to name this is lamport.eex.umich.edu,
+[23:55] colon,
+[23:56] 80,
+[23:57] turns out to be the network endpoint for the web server
+[23:59] that's running on Lamport.
+[24:02] So if you send an HTTP request to that,
+[24:05] you'll get back an HTTP response.
+[24:09] Because there's internal mechanism that converts this
+[24:11] name to the number,
+[24:12] and then the network knows how to get stuff where it goes.
+[24:16] Again,
+[24:17] 489,
+[24:17] lots of cool stuff in that.
+[24:20] You can think of an address in a port to being very similar to a
+[24:25] building address and a room number within that building,
+[24:29] right? So a building has a street address.
+[24:33] The one we're standing in now,
+[24:35] Byster,
+[24:35] the street address of Byster is 2260 Hayward Boulevard, 48109.
+[24:43] Every room within this building has a room number.
+[24:46] We're currently standing in 1670.
+[24:48] My office upstairs is in room 4713.
+[24:53] So if you want to send me a physical piece of mail,
+[24:56] which does still exist,
+[24:59] you wanted to send me a physical piece of mail,
+[25:01] you would address it to that street address and that room
+[25:05] number and it will come to my mailbox on the third floor.
+[25:08] I do not get mail for Professor Haldeman who is on one side of
+[25:12] me.
+[25:12] He's in room 4717.
+[25:14] I do not get mail for Professor Grubbs who's on the other side
+[25:17] of me in 4709.
+[25:19] So,
+[25:22] in fact, I have no idea unless I go looking in Professor
+[25:24] Haldeman's mailbox, which I don't do.
+[25:30] So the way this works in our RPC mechanism,
+[25:36] so call will be the way we invoke an RPC.
+[25:41] Call will name an endpoint
+[25:43] and the function on that endpoint.
+[25:45] So, it's going to be a method of a type.
+[25:49] So, we'll name type.method.
+[25:53] I'm going to pass some arguments.
+[25:55] I'm going to give some room for some results.
+[25:59] And the way this works is the args are going to have some
+[26:02] particular type.
+[26:03] The results will have some other particular type and we'll call.
+[26:06] So, the end point is the way to name the point on the colleague
+[26:12] that is going receive this request and act on it.
+[26:19] For the purposes of 491,
+[26:21] the endpoints will generally be opaque.
+[26:22] You will be handed them and you will just use them.
+[26:25] You don't need to know what they mean.
+[26:27] You don't need to look inside of them.
+[26:29] If you want to talk about how the infrastructure works,
+[26:32] we can talk about it. In fact, I'm giving you the, you
+[26:34] can actually see how we build it.
+[26:37] So have fun with it, but you don't need to think about it and
+[26:40] I recommend that you don't spend too much time on it unless
+[26:43] you're really curious, which is fine.
+[26:45] But don't feel like you need to understand how all of this
+[26:47] works. It's not that important.
+[26:49] It just is.
+[26:54] That's not that interesting. The more interesting thing is
+[26:56] how do we discover that the RPC failed.
+[27:00] Now there are two notions of failure.
+[27:02] One notion of failure was that the operation was invoked
+[27:05] incorrectly.
+[27:10] Now in 280 or 281,
+[27:12] here's a little pop quiz,
+[27:15] 280 in particular,
+[27:17] how do we specify how to create,
+[27:19] how to invoke a function correctly? What are the ways we
+[27:22] say that?
+[27:24] Yeah.
+[27:26] We have the function header and the requires clause.
+[27:29] Excellent.
+[27:30] Yes,
+[27:30] the requires modifies effects clause.
+[27:32] So,
+[27:34] how many of you remember the phrase requires, modifies,
+[27:38] effects? You remember hearing it at some point.
+[27:41] How many of you have ever actually written one that you
+[27:43] didn't have to write for a class?
+[27:46] Okay, good, a couple.
+[27:48] Do those.
+[27:49] Future you will be very happy that today you wrote those for
+[27:52] future you.
+[27:54] But in particular, the requires clause says,
+[27:58] if you're going to call this function, these are the rules.
+[28:00] If you don't follow the rules,
+[28:02] that's on you dog,
+[28:03] cannot help you.
+[28:06] And in fact,
+[28:07] I hope we still say it this way,
+[28:09] in 280 we say if a caller violates the requires clause,
+[28:13] you are allowed to do anything and it's legal.
+[28:16] You could launch the missiles if you want, fine, go for it, have
+[28:19] fun.
+[28:21] In 491 we don't quite do that, we do validate the inputs, we
+[28:24] don't trust the
+[28:27] but we'll play a little fast and loose with this because we don't
+[28:31] think callers are malicious,
+[28:32] so we don't worry too much about that.
+[28:36] However, I'm thinking about a different notion of failure, not
+[28:39] invoking the operation incorrectly, but the act of
+[28:42] invocation failed.
+[28:46] And this is going to be completely new.
+[28:48] So when I say the RPC failed, I don't mean you called the
+[28:52] operation incorrectly, or the operation had a bug,
+[28:56] I mean the act of invoking the operation did not succeed.
+[29:03] That's communicated through this return value error, which I'm
+[29:06] pretty sure is just a boolean.
+[29:09] It's true if it worked, it's false if it didn't.
+[29:14] I think I mentioned this last time, but we're going to say
+[29:17] this over and over and over and over again.
+[29:19] There are three sources of failure in an RPC.
+[29:22] The first is the the message that I'm sending to the callee
+[29:27] to invoke the operation gets dropped, so the callee is
+[29:31] unreachable from the caller,
+[29:34] so the request we say in that case we say the request failed.
+[29:38] The callee is unable to respond, the callee has failed, we're
+[29:41] able to deliver the message to the callee or for whatever
+[29:44] reason the callee is or has failed.
+[29:48] It's also possible that we got the message of the request to
+[29:50] the callee, the the callee got the request to perform the
+[29:53] operation,
+[29:55] but the response failed,
+[29:57] the caller is unreachable from the callee, and the response
+[30:00] fails.
+[30:01] And that can happen because the network paths are asymmetric,
+[30:04] right? Our model of the network is me sending you a message is
+[30:07] completely independent from you sending me a message.
+[30:10] One might be possible while the other one isn't.
+[30:14] When a failure happens, You cannot tell which of those
+[30:20] three things is at fault.
+[30:22] It is impossible.
+[30:25] All you know is you didn't get an answer.
+[30:30] All right, how does this work under the hood? I'm just gonna,
+[30:32] again, this is more to satisfy curiosity than anything else.
+[30:36] You don't need to know about this part because we're not
+[30:38] gonna build it. Yes?
+[30:40] You previously said that responses can take arbitrarily
+[30:43] long. Yeah.
+[30:44] How do you know the difference? So that's a fourth option.
+[30:47] So in that option, the RPC hasn't failed.
+[30:51] We'll come back to that.
+[30:53] And the answer is you don't,
+[30:55] but the RPC system eventually just gives up.
+[30:59] We'll come back to that a little bit.
+[31:03] So when there are no failures,
+[31:05] caller opens a new connection to the port for each call.
+[31:10] That new connection is independent of any other
+[31:12] connections that any other callers may invoke.
+[31:16] The caller waits for the response on that connection.
+[31:19] When the response arrives, that connection is closed.
+[31:22] So if two different clients call an operation sort of
+[31:26] simultaneously,
+[31:27] they will arrive on different connections,
+[31:30] and they'll be independent from one another.
+[31:33] While the caller's waiting,
+[31:34] so how do I know that this,
+[31:36] so this is the way we know that it hasn't failed.
+[31:39] So,
+[31:40] this is the inverse of your question.
+[31:43] So, how do we know that it hasn't failed yet?
+[31:45] And the way we know it hasn't failed yet is that the caller
+[31:47] run time sends a periodic heartbeat message.
+[31:51] So, I send,
+[31:52] like maybe I'm asking you to compute some really, really
+[31:55] expensive thing.
+[31:56] This is going to take a really long time.
+[31:58] While I'm waiting, I periodically send, hey, are you
+[32:00] still around?
+[32:01] And if you're still working on it, you say, yep,
+[32:03] still good.
+[32:06] So, if the heartbeat arrives at the callee, which means the
+[32:09] network to the callee is is alive the runtime of the callee
+[32:13] responds if it's able which means the node hasn't failed if
+[32:17] the response arrives at the caller we know that there's no
+[32:20] failure yet it doesn't mean it can't it just means it
+[32:26] hasn't yet
+[32:30] so what happens if something does fail if something does fail
+[32:34] the network path from the caller to the callee fails,
+[32:37] the callee is down or literally just too busy to answer.
+[32:42] The network path from the callee to the caller is down under any
+[32:45] of these conditions,
+[32:46] that heartbeat won't succeed.
+[32:49] And if the heartbeat doesn't succeed,
+[32:51] if there are enough responses to the heartbeat that don't arrive,
+[32:56] then I declare that there's an error.
+[33:01] Now remember,
+[33:02] these failures are transients just because the RPC fails now
+[33:07] doesn't mean if I try it again right away it will fail again.
+[33:11] It might succeed or I might wait a little while to try and that's
+[33:16] an open question.
+[33:19] One of the things that is very, very, very, very, very
+[33:23] important,
+[33:25] if the RPC fails, in other words the call returns false, Yes,
+[33:29] the result structure is garbage.
+[33:34] It is not necessarily what you put there when you started.
+[33:38] You have to assume the result structure is completely
+[33:41] undefined.
+[33:42] If you look at it and try and make a decision based on it, and
+[33:46] the RPC has returned false,
+[33:48] you are doomed.
+[33:50] Please don't do that.
+[33:56] Questions so far?
+[33:57] Yes. So for the heartbeats,
+[33:59] it's the caller sends a heartbeat,
+[34:02] and then also expects a response.
+[34:05] So I asked you to do something really, really difficult,
+[34:07] and it's going to take you all day.
+[34:10] Hey, you still working on that?
+[34:11] Yeah.
+[34:12] Hey, you still working on that?
+[34:16] Hey, you still working on that?
+[34:18] Yeah, right. So as long as I keep getting a
+[34:20] yes,
+[34:21] I assume things are going to be okay.
+[34:22] Now, that doesn't mean that, like,
+[34:25] if the other side is stuck in an infinite loop.
+[34:28] I'm not going to know that. But again, we assume these
+[34:31] things don't have bugs, right? So we assume they're fail stop.
+[34:37] Other questions?
+[34:39] Yes.
+[34:40] Does the, do the Harvey messages use the same network path?
+[34:43] Yes.
+[34:44] Well,
+[34:45] in our model,
+[34:48] it's not actually true because the actual network is allowed to
+[34:52] route any message however it cares to.
+[34:58] Pays your money, takes your chances.
+[35:01] Yes.
+[35:01] If the drug receives a heartbeat,
+[35:04] how can we know if the employee is too busy or is down?
+[35:08] Well, eventually we just declare what looks like it's probably
+[35:12] down. We don't know for sure that it
+[35:14] is.
+[35:15] We just know we haven't been getting answers.
+[35:18] Which brings me to the next question.
+[35:20] So this is also the question that you were asking.
+[35:23] So what about failures that aren't,
+[35:25] right? Remember, there's a fourth option if I don't get a
+[35:28] response.
+[35:29] And that fourth option is,
+[35:31] it will eventually arrive, it's just really, really slow,
+[35:35] right? So I send a heartbeat request off the network and it's
+[35:38] also really slow and I don't get the response the amount of time
+[35:41] I kind of assume that I'm gonna get it.
+[35:43] This is why you can spend two weeks building RPC,
+[35:47] because then you have to start thinking about, well,
+[35:49] how long do I wait for a heartbeat? How many heartbeats
+[35:51] do I wait for?
+[35:53] All kind of interesting questions, but not interesting
+[35:56] enough for me to care about this semester.
+[36:01] So the RPC system can declare a failure
+[36:05] even if the underlying call will eventually succeed.
+[36:10] It just doesn't know it yet because things are really,
+[36:12] really slow.
+[36:14] If that happens,
+[36:16] the RPC subsystem throws away the late response so if the RPC
+[36:21] subsystem has said this call that I'm waiting for an answer
+[36:24] for I haven't heard anything back it's been forever I
+[36:28] guess it's dead and then two minutes later the response comes
+[36:33] back I look at don't care dropped which means very very
+[36:39] very very slow things get coerced into failures so you
+[36:43] don't have to worry about if the RPC subsystem says it has
+[36:46] failed,
+[36:47] you do not have to worry about later handling a response.
+[36:51] You will never see it at the callee.
+[36:55] Looks like there are some questions.
+[36:58] I see furrowed brows.
+[37:11] Yes.
+[37:12] Is assuming that the results are garbage after RPC fails just
+[37:16] something that we do in 491?
+[37:18] Or is it?
+[37:20] No, it's probably the case that it depends on the exact sort of
+[37:24] specification of the RPC system you're using.
+[37:27] But if you assume it's garbage, you can't be wrong.
+[37:31] It's like we said, the results are transient, so like a second
+[37:34] later, like the RPC could succeed.
+[37:35] But if the second later the RPC could succeed, you've already
+[37:38] declared it failed and the result structure is garbage.
+[37:41] And in fact,
+[37:42] the RPC subsystem,
+[37:43] if it gets the response,
+[37:45] it's not going to fill in the response buffer.
+[37:47] It's just going to drop it on the floor,
+[37:49] in part because I don't own.
+[37:50] So one way to think about this, and this will make much more
+[37:53] sense if you've ever written Rust code,
+[37:57] the RPC subsystem only owns the buffer during the call.
+[38:01] Ownership passes back to the caller.
+[38:04] And this is also a 280 thing when we talked about at most
+[38:07] once.
+[38:09] We can talk about it a little more offline.
+[38:10] But the basic idea is that I own the buffer before and after the
+[38:15] call, the RPC subsystem owns the buffer during the call,
+[38:18] which means if the call returns, the RPC subsystem is no longer
+[38:21] allowed to muck with it.
+[38:23] That would be bad.
+[38:28] Okay,
+[38:30] something to notice. When there are no failures,
+[38:33] a caller opens a new connection to the port for every call.
+[38:38] the caller waits for the response on that connection
+[38:42] and then when the response arrives, the connection is
+[38:44] closed.
+[38:45] What do we do if lots of clients are calling at the same time?
+[38:51] We kind of have two choices.
+[38:54] One choice is,
+[38:55] well, we take them in some order, we let the RPC system
+[38:58] sort of decide what order we're gonna invoke these operations
+[39:02] in. So if we've got six client calls
+[39:04] that all arrive roughly at the same time, The RPC system will
+[39:08] just pick one of them and hand it to us.
+[39:10] We'll invoke,
+[39:10] we'll deal with that one.
+[39:12] And then when we're done, we'll get the next one and we'll
+[39:15] handle that one. And then we're done, we'll get
+[39:16] the next one.
+[39:17] The other way is to invoke those operations all at once.
+[39:24] So we have three clients calling the add operation.
+[39:28] The add function will be called three times all at the same
+[39:31] time.
+[39:33] Okay, the first thing is called sequential.
+[39:37] So that's the sequential model of,
+[39:39] and the second thing is concurrent.
+[39:42] The sequential one is much easier to think about.
+[39:48] It's also really bad,
+[39:50] and we won't do it. So the server,
+[39:53] the RPC subsystem is built so that calls can be invoked
+[39:58] concurrently.
+[40:00] Why? Well, so the reason is,
+[40:02] if you're the caller or colleague,
+[40:06] what has to happen to satisfy a request? Well, you've got to
+[40:10] read the request off the network, which depends upon the
+[40:15] speed at which the request is being sent to you,
+[40:19] right? Because I don't have to say,
+[40:20] hey,
+[40:21] could you do this operation for me? I can say,
+[40:23] hey,
+[40:25] could you do this?
+[40:31] So the request doesn't have to come quickly, it could come
+[40:35] slowly.
+[40:36] Then I have to perform the request,
+[40:38] which is gonna probably involve some computation.
+[40:40] It might involve a read from the disk subsystem or flash memory.
+[40:44] It might involve a synchronous disk write.
+[40:47] So if I'm going to tell you that I did an operation,
+[40:50] and that operation has to survive failure, It has to have
+[40:53] made it to disk and I have to know that it made it to disk.
+[40:55] That's what I mean by synchronous disk, right?
+[40:57] I send it to disk and I don't, I don't,
+[41:00] I wait there until I know it's there.
+[41:03] Maybe I have to communicate with other internal nodes.
+[41:06] You're asking me to do something, I have to ask some
+[41:07] friends to do some stuff, and I have to send some messages
+[41:10] within the data center to do that.
+[41:13] And then I write the response back to the network.
+[41:17] So,
+[41:17] reading the request off the network can be slow.
+[41:21] Again, because if the request doesn't arrive all at once, then
+[41:24] I have to sort of wait till I get the whole thing to build it.
+[41:27] If I'm doing a disk read, that also can be and is usually slow.
+[41:30] It might be sitting in the disk cache, in which case it's pretty
+[41:32] fast,
+[41:33] but it's probably slow.
+[41:36] Synchronous disk write is always slow.
+[41:38] Nothing you can do about that.
+[41:40] It just is, and it doesn't matter if you're using Flash
+[41:43] instead of disk.
+[41:44] It's not as slow, but it's still slow.
+[41:47] And communicating with other internal nodes, that's also
+[41:50] slowest because again,
+[41:52] all of our communication takes measurable time.
+[41:56] Measurable is not instantaneous.
+[41:58] Instantaneous is fast,
+[42:00] not instantaneous is slow.
+[42:02] And then I write the response network, that's usually fast,
+[42:05] because usually I just have to give it to the memory of the
+[42:07] operating system and then it sends it out when it can.
+[42:12] Now if the server has multiple cores or processors, which they
+[42:16] all do,
+[42:18] in fact I'm going to bet none of you own a device
+[42:23] with a processor that has only one core.
+[42:28] Maybe if you own a smaller Raspberry Pi or some other
+[42:32] embedded processor,
+[42:33] maybe.
+[42:34] But your phone has multiple cores,
+[42:37] everything you own has multiple cores.
+[42:39] There are reasons for that, the reasons are really kind of 470
+[42:42] reasons, we're not going to get into than here,
+[42:44] but that's the way we've been able to make hay as a field for
+[42:48] the last 20 years.
+[42:49] So if the server has multiple cores and processors and I'm
+[42:52] only doing one of these at once,
+[42:54] all but one of these processors is not serving clients and one
+[42:57] of them is mostly just sitting around waiting for stuff to
+[42:59] happen.
+[43:02] Okay, how long are we sitting around waiting for stuff to
+[43:04] happen?
+[43:05] So these are from 2010-ish,
+[43:10] I think. So these absolute numbers are
+[43:13] not exactly correct, but they're famous.
+[43:16] These are Jeff Dean's numbers to know.
+[43:17] We're gonna hear Jeff Dean's name a lot.
+[43:20] Jeff Dean is one of the primary, was, he left Google very
+[43:23] recently, but he was one of the primary systems architects at
+[43:26] Google for their distributed system stuff.
+[43:31] So really what I want you to think about is the relative
+[43:34] costs of these things.
+[43:36] Because the relative costs of these things, while not exactly
+[43:40] constant, then they are in more or less the same order.
+[43:43] In fact, I think they are in exactly the same order.
+[43:46] And mostly the ratios are pretty close.
+[43:50] So,
+[43:51] you know, if I,
+[43:52] an L1 cache reference,
+[43:54] that's pretty fast,
+[43:55] designed to be pretty fast.
+[43:57] If I have to actually go out to memory, that's quite a bit
+[43:59] slower than hitting it in the cache.
+[44:00] That's why we have a cache.
+[44:05] Reading one megabyte sequentially from memory, that
+[44:07] takes a little bit of time, but you know we can strobe it and
+[44:11] there's the memory designers have done some stuff to make
+[44:13] that that pretty fast but if we have to do a round-trip to in
+[44:17] the data center that's more than reading a megabyte of memory so
+[44:21] you can kind of draw this line below the line is IO
+[44:26] sending a round-trip within the same data center waiting for the
+[44:31] disk to do something reading something from the disk sending
+[44:35] a packet from California to the Netherlands, and back.
+[44:39] So all of that stuff is I-O.
+[44:42] The stuff above the line is not I-O.
+[44:44] Well, sending is I-O, but it's not blocking I-O.
+[44:47] Sending I-O is just, it's really just a memory operation.
+[44:52] But blocking for things,
+[44:54] that's super expensive.
+[44:58] So over time, you'll sort of internalize the relative cost of
+[45:02] these things. and you just kind of want to
+[45:05] know them in your bones, right?
+[45:07] But the thing for now that you really need to know is that any
+[45:12] time you might block for IO,
+[45:15] waiting for something to come to you off the network,
+[45:17] waiting for something to come off the disk,
+[45:20] waiting for a response from somebody else in the data
+[45:22] center,
+[45:23] waiting for the disk to complete or write,
+[45:24] any of those are blocking IO.
+[45:28] Whenever you have to do blocking IO, it can take many, many,
+[45:32] many, many cycles.
+[45:34] Many, many, many, many, many cycles.
+[45:37] While the processor is blocked,
+[45:39] if it's not allowed to do something else while it's
+[45:42] blocked waiting for IO,
+[45:44] the processor cannot do anything else.
+[45:49] So the conclusion is,
+[45:50] if we're ever blocking for IO, we're gonna spend ridiculous
+[45:54] amounts of this very expensive processor doing nothing.
+[45:57] So we would like to arrange for something else to happen if
+[46:00] possible.
+[46:01] Now how you arrange for the something else to happen if
+[46:04] possible is 482.
+[46:07] We're just going to assume it works because we're handed a
+[46:10] language in which it just works,
+[46:12] which is super convenient,
+[46:15] right?
+[46:16] So if we can do this arranging, which we know how to do through
+[46:20] 482 and related mechanisms, then we can do other things, which
+[46:25] means if I get a bunch of calls all at the same time.
+[46:29] Some of those calls might be waiting for IO, but other calls
+[46:32] might have computation they could do.
+[46:34] And even if I only have one core,
+[46:36] I can sort of do them all at the same time.
+[46:39] And I have more than one core, so I can really do them all at
+[46:41] the same time.
+[46:45] Okay.
+[46:49] So, coming back to this,
+[46:55] We're handling each connection separately and concurrently,
+[47:00] so the implications of separately are the port named in
+[47:04] the call is used to create a connection,
+[47:06] the connection is a new distinct unnamed endpoint.
+[47:10] So when two clients call to the same endpoint,
+[47:13] they will get new connections. It's kind of like dialing a
+[47:16] phone.
+[47:17] When you dial the phone, you get a connection to the side.
+[47:21] So all of these things can be handled distinctly because from
+[47:26] the server's point of view they all look like distinct
+[47:28] invocations.
+[47:31] The implications of concurrently are that the function
+[47:36] that implements any remote operation plus any of the
+[47:41] functions it might call can have more than one copy of
+[47:47] that function running at exactly the same time.
+[47:52] If you have never seen this before,
+[47:56] now you've seen it before if you've taken 482,
+[47:58] you've seen kinda sort of it before if you've taken 484,
+[48:04] maybe 485, I don't know if 485 does this or not.
+[48:07] There are a couple classes where we talk about this,
+[48:11] but if you've never seen this before,
+[48:14] it is totally bizarre.
+[48:17] If you have seen it before and you think you understand it,
+[48:20] you don't.
+[48:23] And that's, I'm saying that largely because there are even
+[48:26] times when I get surprised by what happens.
+[48:30] This is just not happening.
+[48:33] And the problem is,
+[48:34] this is not how brains,
+[48:36] our conscious existences work.
+[48:39] Now brains do work concurrently, it turns out.
+[48:41] My brain is doing all kinds of crap that I have no idea is
+[48:43] actually happening.
+[48:45] It's running my heart,
+[48:46] it's running my lungs, it's doing all kinds of stuff,
+[48:49] but but all I know,
+[48:51] I am experiencing the world as a sequential set of events
+[48:55] because my conscious attention can pay attention to one thing
+[48:58] at a time.
+[48:59] So our model for the world is that it is sequential,
+[49:02] fundamentally,
+[49:04] from the point that we were born.
+[49:07] And unfortunately the world is just not that way,
+[49:09] it is concurrent.
+[49:12] I also want to say a little bit about nomenclature,
+[49:15] about this,
+[49:15] the words,
+[49:16] people often use the word concurrent and parallel
+[49:19] synonymously, they do not mean the same thing.
+[49:24] Concurrent is a property of the system, and a system is
+[49:29] concurrent if
+[49:30] it's possible that two things can happen at the same time.
+[49:37] Parallel is a of an execution.
+[49:41] Parallel means two things do happen at the same time.
+[49:47] So concurrency is a property of your design.
+[49:50] And it's an expression of what is possible.
+[49:54] And you can tell whether or not a program is concurrent by
+[49:57] reading it.
+[49:59] We sometimes say if you can tell something about a program by
+[50:02] just reading it,
+[50:03] we call that a static property. You can determine it statically.
+[50:10] Parallel is a property of the execution of a concurrent
+[50:14] program.
+[50:15] A program that is not concurrent can never be parallel,
+[50:18] but a program that is concurrent is not always parallel.
+[50:22] Sometimes it is and sometimes it's not.
+[50:24] It's a property of the execution and it's an instance of what
+[50:28] actually happens in a given execution of the program.
+[50:32] That can only be known dynamically and it can be
+[50:37] different from one execution to another.
+[50:40] So even though you have one concurrent program and you give
+[50:44] it exactly the same inputs in exactly the same sequence, it
+[50:50] can still end up executing differently.
+[50:53] Because the rate at which the processor moves is not known
+[50:58] and there are all kinds are good reasons for that.
+[51:10] I think I say this later but I'll say it now.
+[51:12] This is also sometimes called non-deterministic.
+[51:17] So a program is deterministic if you give it the same inputs and
+[51:21] it always gives you the same outputs.
+[51:24] A program is non-deterministic if you give it the same inputs
+[51:26] and the everything you've ever written is non-deterministic
+[51:32] because if you include the time in your output, that changes
+[51:36] from execution to execution, but not in an interesting way.
+[51:40] This stuff is a little more interesting.
+[51:43] Now,
+[51:44] one of the things I'm gonna make the case for this,
+[51:47] this is a go
+[51:49] belief and I subscribe to it.
+[51:53] Concurrency can improve the and the readability of your program.
+[51:59] Alright,
+[52:00] what's cool about objects? We talked about this on Monday.
+[52:04] Why are objects in a typical object-oriented programming
+[52:08] language interesting and cool and helpful?
+[52:14] I'm sad.
+[52:17] Yeah?
+[52:20] Yeah,
+[52:23] what's cool about objects is any state that's private to the
+[52:27] definition of that type
+[52:29] can only be seen by the methods of that type.
+[52:33] And then if you have a structural invariant, then man,
+[52:34] you get to go to town, then you get local reasoning.
+[52:37] But at the very least,
+[52:39] you know that if someone is mucked with some private piece
+[52:42] of state in your object,
+[52:44] it has to be one of the methods, it can't be anything else,
+[52:47] right?
+[52:48] So what's cool about objects is that they encode the data with
+[52:51] the operations that are possible on that data.
+[52:53] And that allows for local reasoning.
+[52:58] What's happening?
+[53:00] Sammy has returned.
+[53:01] A long lost GSI has returned.
+[53:04] That's surprising.
+[53:05] Dig it.
+[53:06] All right,
+[53:08] I dig that. Welcome.
+[53:12] So what's cool about objects,
+[53:13] they encode the data of the operations.
+[53:15] Concurrency can do the same thing.
+[53:17] So instead of methods, which are passive things that get invoked,
+[53:20] we can have actors which are active things that respond to
+[53:24] stimuli and those actors can be encoded with the data they act
+[53:29] upon and this also can allow for local reasoning so one of the
+[53:33] things one of the ways that we're going to use this in this
+[53:37] class is that we'll have a single actor encoding some piece
+[53:41] of state that gets used by these invocations and since only one
+[53:45] actor can touch it it is never shared that may not be
+[53:49] immediately obvious That's why that's cool.
+[53:51] It is extremely cool.
+[53:58] All right, so how does this work in a programming language? So,
+[54:00] we'd like to be able to build a programming,
+[54:03] a program that is concurrent.
+[54:05] How do we build a program that is concurrent? Well, we need the
+[54:07] programming language to support concurrency in some way.
+[54:11] So, here's one way to do that.
+[54:12] And there are other ways, but here's a way.
+[54:15] So, think about how a function call works.
+[54:16] You put the arguments in some known place, You execute the
+[54:19] jump to subroutine instruction with the address of the
+[54:22] subroutine.
+[54:23] The called function executes knowing where the arguments are.
+[54:27] It places the return value or values in some known place and
+[54:30] executes the return from subroutine instruction which
+[54:33] goes back to the callee right after the invocation which knows
+[54:37] that the results are magically where they're expected to be.
+[54:42] So one way to think about this is that the caller and the
+[54:45] callee are just completely independent,
+[54:47] like they are in RPC,
+[54:49] the caller invokes the callee and waits for it to be done.
+[54:55] What if the caller didn't have to wait?
+[54:59] Now if you don't wait, you're not gonna get the results in the
+[55:01] obvious way, because if you're not waiting, the results aren't
+[55:05] there,
+[55:05] because maybe the thing's not done yet.
+[55:08] But that means it can go off and do its thing while you do your
+[55:11] thing.
+[55:13] In Go,
+[55:15] there is something called a function modifier keyword,
+[55:19] the Go keyword.
+[55:21] Go can appear before any function call,
+[55:27] but it has to be like you can't say Go two plus two.
+[55:30] You have to say Go the function that adds two and two together.
+[55:35] Go can appear before any function call, and what it means
+[55:38] is Go do this, I'm not waiting for the answer.
+[55:45] If you call a function this way, the invoked function is referred
+[55:49] to as a go routine.
+[55:51] Now, we also say that it's called asynchronously.
+[55:54] If it were synchronous, we would wait for it.
+[55:56] If it's asynchronous, we don't.
+[55:59] The arguments to the call are evaluated at the time of the
+[56:02] call.
+[56:04] The actual go routine is going to start running at some point
+[56:07] at or after the call. We have no idea when.
+[56:11] And we have no idea how fast.
+[56:13] We just know that it's going to start.
+[56:17] But the arguments are evaluated at the time of the call.
+[56:20] If the function we're calling has returned values, they're
+[56:23] going to be completely ignored.
+[56:26] So there's going to need to be some other way for that thing to
+[56:28] communicate back to us if it needs to.
+[56:30] And maybe it doesn't need to.
+[56:31] That's OK, too.
+[56:34] All right,
+[56:36] we've been going for almost an hour.
+[56:40] It's a little longer than I probably should have.
+[56:43] Let's take a two and a half minute break.
+[56:46] when that clock says 11-28, we will return.
+[57:39] I'm like trying to think of examples.
+[58:09] How many times do you have been in both?
+[58:14] Well,
+[58:15] if it's not stateful, how do you do a bank balance?
+[58:21] I'm going to deposit to my bank balance.
+[58:25] Does this make sense?
+[58:32] Even if it's on one machine, that's still stateful.
+[58:36] If I put my current balance, I'll get enough.
+[58:38] The part we see wouldn't be safe in that case, it would just be
+[58:41] someplace in this or that way.
+[58:43] Well, I mean,
+[58:43] we got active.
+[58:44] We got active.
+[58:45] It's like, we're controlling this structure.
+[58:48] It's not your fault.
+[58:50] It's not your fault. It's not your fault.
+[58:52] It's equal based on the state of the entire system.
+[58:54] Yeah,
+[58:55] yeah.
+[58:55] It's fine.
+[58:57] It's fine. It's fine.
+[58:58] It's fine.
+[59:00] It's fine. It's fine.
+[59:00] It's fine.
+[59:03] It's fine.
+[59:06] It's fine.
+[59:20] Okay.
+[59:27] So let's take a look and see how this might be used.
+[59:32] So I have this function called count.
+[59:36] Count takes an integer by reference,
+[59:39] so count takes two integer,
+[59:41] two arguments.
+[59:42] First argument is value, which is a pointer to an integer.
+[59:46] The second argument is a label, which is a string.
+[59:48] This is all Go.
+[59:49] It'll read pretty straightforwardly if you've used
+[59:52] another imperative language,
+[59:54] either C, C++,
+[59:55] Java.
+[59:57] Familiarity with any of those, this should probably sort of
+[1:00:00] kind of make sense.
+[1:00:02] So first thing I'll do is my initial value,
+[1:00:05] print it out,
+[1:00:06] the initial value of this number I've been handed is a value and
+[1:00:11] there's a label because I might have different counters that are
+[1:00:14] running and they need to each say which counter it was,
+[1:00:18] then you know for zero from zero to a million add one to the
+[1:00:22] value.
+[1:00:23] So at the end of this I expect the value to be one million
+[1:00:27] bigger than it started.
+[1:00:29] Pretty straightforward,
+[1:00:31] boring,
+[1:00:32] not particularly useful function.
+[1:00:35] Now, if I were going to call it synchronously, this is what that
+[1:00:38] would look like. I'd start with some initial
+[1:00:40] value for the value.
+[1:00:42] Let's say I'm going to do this four times.
+[1:00:45] And for four different times,
+[1:00:47] I will count,
+[1:00:48] so I will call count counter zero,
+[1:00:52] then count counter one,
+[1:00:53] then count counter two,
+[1:00:55] then count counter three.
+[1:00:56] What I would expect to see is if the initial value is zero and
+[1:00:59] then it's a million,
+[1:01:00] then the initial value is a million, then it's two million,
+[1:01:03] and so on.
+[1:01:06] And in fact, if I run the sequential version of this
+[1:01:08] program, that's exactly what I get.
+[1:01:13] No surprises so far.
+[1:01:15] Straightforward 183 stuff.
+[1:01:20] If I make one change to the main function,
+[1:01:25] so instead of calling count synchronously
+[1:01:30] I call it asynchronously.
+[1:01:35] So now what this says is,
+[1:01:39] in this loop four different times,
+[1:01:41] launch the count function with a reference to the variable val,
+[1:01:46] But don't wait for it to finish. Just launch it.
+[1:01:51] And when they're launched, I'll print done and what the value
+[1:01:53] is.
+[1:01:55] Okay.
+[1:01:56] If I do that,
+[1:02:00] that's kind of weird.
+[1:02:04] So somehow the first thing that I printed is done.
+[1:02:06] The value is zero.
+[1:02:08] So that's the first thing that gets printed.
+[1:02:14] Which means the main go routine is at least at that point here.
+[1:02:20] And then,
+[1:02:21] counter 3's initial value is 0. Well, counter 3 wasn't the first
+[1:02:23] one I invoked,
+[1:02:25] but okay, I mean, I guess.
+[1:02:28] And then, counter 1's initial value is 0, counter 0's initial
+[1:02:30] value is 0, counter 2's initial value is 0, and then the program
+[1:02:34] just stops.
+[1:02:36] That's a little weird.
+[1:02:39] Okay.
+[1:02:40] The first thing to know about Go is the main method
+[1:02:45] is distinguished.
+[1:02:50] When the main method,
+[1:02:51] when the main Go and main runs in its own Go routine,
+[1:02:55] it can start other Go routines, which in turn can start other Go
+[1:02:58] routines, but it's it runs in its own.
+[1:03:00] When the Go routine that main runs in ends,
+[1:03:04] all of the Go are terminated with prejudice.
+[1:03:10] So,
+[1:03:11] whatever other Go routines have been launched by the main Go
+[1:03:13] routine are stopped.
+[1:03:17] If you've taken 482, this kind of makes sense because main
+[1:03:21] exiting ends the process.
+[1:03:23] The process is the unit of resource allocation, so you
+[1:03:26] recover all of the resources.
+[1:03:28] Those are all those are just resources.
+[1:03:30] You have the extra Go routines.
+[1:03:32] However,
+[1:03:34] the The other four Go routines did all do a little bit of work
+[1:03:38] before the overall Go routine ended.
+[1:03:41] So between this point and this point,
+[1:03:46] which is kind of the end of the program,
+[1:03:49] so between printing out this message
+[1:03:52] and actually having the Go routine end,
+[1:03:55] which doesn't look like there's a lot there,
+[1:03:57] but the printing the message is distinct from ending the Go
+[1:04:00] routine, those are distinct events.
+[1:04:03] The other go routines did a little bit of work.
+[1:04:07] That's kind of fascinating.
+[1:04:09] So,
+[1:04:11] you know, they all managed to print their initial message.
+[1:04:14] They might have even managed to do some of their work.
+[1:04:16] Don't really know.
+[1:04:18] We just know that none of them got to the point of printing
+[1:04:20] their end message.
+[1:04:23] Some of them might have even incremented some of those
+[1:04:24] values.
+[1:04:26] Could be.
+[1:04:29] So,
+[1:04:30] well,
+[1:04:31] if they got to do some of their work, maybe we should just give
+[1:04:33] them some time.
+[1:04:36] Give them some time to do their work.
+[1:04:38] So one way we could do this is put the main go routine to
+[1:04:43] sleep.
+[1:04:44] Because we probably don't want to print done until we're done.
+[1:04:48] So time sleep says,
+[1:04:51] hey put this go routine to sleep for a second,
+[1:04:54] after a second wake it back up and let it run again.
+[1:04:57] And if there are other go routines that could be doing
+[1:04:59] some work, let them do some work.
+[1:05:01] No problem.
+[1:05:04] Second's probably long enough.
+[1:05:05] I mean we're only incrementing a number a million times.
+[1:05:09] It doesn't take that long.
+[1:05:11] So if I do that,
+[1:05:13] this is the execute and execution of that version.
+[1:05:17] Well everybody prints their initial values, everybody prints
+[1:05:19] their final values,
+[1:05:21] and done prints its final value after a second has completed,
+[1:05:24] and we get 1.3 million and change.
+[1:05:27] Just what we expected, the four million.
+[1:05:31] If we run it again,
+[1:05:35] now we get 1.7 million.
+[1:05:38] That's weird.
+[1:05:39] Not exactly the same.
+[1:05:41] In fact, if I keep running this over and over and over again,
+[1:05:43] some of the initial values won't even be zero.
+[1:05:45] I just didn't print them up.
+[1:05:50] That's weird,
+[1:05:51] right? So,
+[1:05:52] how is it that I keep getting different answers for all of
+[1:05:56] these things?
+[1:05:57] And also,
+[1:05:57] kind of interestingly,
+[1:05:59] the counters don't end in the same order.
+[1:06:01] The first time,
+[1:06:02] the counter zero was the first one to finish.
+[1:06:04] The second time, counter one was the first one to finish.
+[1:06:07] So,
+[1:06:07] something definitely weird is going on, but this is really
+[1:06:10] weird.
+[1:06:11] Like,
+[1:06:11] how all of these things are running a million times.
+[1:06:14] They are all incrementing their value a million times.
+[1:06:18] Yet somehow the final value is not four million.
+[1:06:22] That seems weird.
+[1:06:24] The other stuff kind of makes sense, right?
+[1:06:26] We make sense that the counters finish in some unknown order,
+[1:06:29] because we don't know how long it will take for these things to
+[1:06:31] work.
+[1:06:33] But the fact that they don't add the same number of times, even
+[1:06:36] though they execute the same number of add operations,
+[1:06:40] that's bizarre.
+[1:06:45] Okay, what's really going on?
+[1:06:48] So, what's really going on is we have this line.
+[1:06:53] DREF would take the value that is stored at the memory location
+[1:06:57] named by val,
+[1:07:00] add one to it,
+[1:07:02] store that value back in that memory location.
+[1:07:07] Now, 370 is not a prerequisite for this class.
+[1:07:10] I've thought about changing that.
+[1:07:12] I don't think I need to.
+[1:07:14] So, I'm just going to explain what happens here.
+[1:07:16] All right, what happens here is that a processor does not
+[1:07:20] operate on memory directly.
+[1:07:23] A processor has a little bit of scratch memory inside of it
+[1:07:26] called the registers.
+[1:07:28] And to do any operation, it first has to fetch data from
+[1:07:31] memory into a register.
+[1:07:33] It performs an operation using one or more registers, and when
+[1:07:36] it's done performing the operation, it takes the memory
+[1:07:39] that's in the register and writes it back.
+[1:07:42] That's the model of how computation really works with a
+[1:07:46] CPU oriented system. GPUs are a little different,
+[1:07:49] not going to talk about it,
+[1:07:50] don't care,
+[1:07:53] but a CPU that's how CPUs do everything they do.
+[1:07:56] They read from memory,
+[1:07:58] they perform an operation internally, when they're done
+[1:08:00] performing the operation they will eventually write back to
+[1:08:04] memory.
+[1:08:06] So what's happening in this line is that we load from the memory
+[1:08:09] location to a register,
+[1:08:11] we increment the register and we store the result that's in that
+[1:08:16] register to the memory location val.
+[1:08:19] And if more than one of those things is happening in parallel,
+[1:08:22] this is what that looks like. So let's suppose the value 6 is
+[1:08:27] sitting off in memory,
+[1:08:28] I have two processors.
+[1:08:31] One processor loads 6, the other processor loads 6.
+[1:08:35] The processors independently increment their sixes to sevens,
+[1:08:41] then one processor writes back seven and the other processor
+[1:08:44] writes back seven.
+[1:08:46] So there were two additions formed, performed,
+[1:08:51] but we only have evidence of one because the work that one of the
+[1:08:57] processors has done is basically lost.
+[1:09:04] So, when processor one loads while processor two is loading
+[1:09:07] and they're allowed to load, it turns out that in most shared
+[1:09:10] memory systems the loads are ordered because there's only one
+[1:09:15] memory bus and everything has to go over that.
+[1:09:18] Again,
+[1:09:19] that's kind of like,
+[1:09:20] that might even be 470 stuff.
+[1:09:23] But that's sort of what happens.
+[1:09:24] But then the increments can happen independently and then in
+[1:09:27] some order the stores will happen.
+[1:09:30] So when that happens,
+[1:09:32] one of the increments is dropped.
+[1:09:34] How many are dropped on any given execution?
+[1:09:37] We have no idea.
+[1:09:39] Here it is approximately 2.7 million and change increments
+[1:09:44] were dropped.
+[1:09:46] Here we dropped approximately 3.6
+[1:09:50] million and a lot. Almost 3.7
+[1:09:52] million.
+[1:09:53] So lots and lots and lots of these increments are being
+[1:09:55] dropped.
+[1:10:00] So,
+[1:10:00] what's going on?
+[1:10:04] What's going on is that we have absolutely no way of knowing.
+[1:10:10] I did this fast.
+[1:10:11] I cannot believe I'm at this far in this lecture this fast.
+[1:10:15] Really worries me.
+[1:10:17] Oh, well, we'll figure it out.
+[1:10:19] We'll see what you know.
+[1:10:21] We have no way of knowing the order in which the counters
+[1:10:24] start,
+[1:10:26] the speed at which each of those counters run or how the counters
+[1:10:31] interact through value and it's potentially different every
+[1:10:37] single time.
+[1:10:40] And this is called non-determinism.
+[1:10:47] Bad news, good news, how to win big.
+[1:10:50] This is a play on a very famous,
+[1:10:53] how many,
+[1:10:54] let's see if anyone's seen this because I probably none, I'll
+[1:10:56] post it anyway. How many have you,
+[1:10:58] how many of you have ever seen the worst is better argument?
+[1:11:04] Raise your hand.
+[1:11:06] Okay I'll post it.
+[1:11:08] The worst is better argument basically means there are
+[1:11:10] business reasons why building bad software is a good idea.
+[1:11:13] It's a really cool argument and it's titled good news bad news
+[1:11:17] how to win big.
+[1:11:18] I'll post it.
+[1:11:19] It's worth a read. It's very interesting.
+[1:11:23] So this is a play on that bad news good news how to win big.
+[1:11:25] The The bad news is that concurrent go-routines can make
+[1:11:30] progress at arbitrary rates and interleave with each other in
+[1:11:33] arbitrary ways.
+[1:11:35] And in fact, this isn't even the worst of it.
+[1:11:38] There's a third thing that I'll talk about next time,
+[1:11:42] which is not only can they interleave in arbitrary ways,
+[1:11:47] but one go-routine can see the effects of another go-routine
+[1:11:50] out of order.
+[1:11:53] So if a Go routine stores seven to location val and eight to
+[1:11:58] location val2,
+[1:12:00] another Go routine can see the eight storage before the seven
+[1:12:03] storage.
+[1:12:05] So the other Go routines aren't even guaranteed to see the first
+[1:12:08] Go routine's actions in order,
+[1:12:11] which is disastrous.
+[1:12:14] Like that is,
+[1:12:15] I don't know how you write correct programs that way,
+[1:12:17] but you can't.
+[1:12:20] The good news is that the hardware designers are good
+[1:12:25] friends in 4.70,
+[1:12:27] 5.70,
+[1:12:28] 3.70,
+[1:12:29] have seen fit to give us mechanisms in the processor to
+[1:12:34] make some guarantees about how this works.
+[1:12:38] Not guaranteeing everything,
+[1:12:40] but guaranteeing some very specific things.
+[1:12:42] Those low-level processor mechanisms are used in fairly
+[1:12:48] magical and cool ways to provide something called
+[1:12:51] synchronization.
+[1:12:57] Synchronization basically boils down to one guarantee.
+[1:13:03] So I have two Go routines.
+[1:13:06] This Go routine has an event S,
+[1:13:09] or let's say B before. this Go routine has an event A
+[1:13:12] after.
+[1:13:14] Synchronization is a technique that allows us to link B with A
+[1:13:19] such that we're guaranteed that B happens before A,
+[1:13:24] and everything that happened before B in program order is
+[1:13:29] visible to everything in A after that point.
+[1:13:35] So it guarantees that two things happen in a particular order and
+[1:13:41] that they have particular visibility.
+[1:13:43] Now it doesn't say anything about what happens in the first
+[1:13:46] go routine after B and what A can see after B.
+[1:13:51] A only knows it can see everything that happened before
+[1:13:54] B.
+[1:13:55] Guaranteed.
+[1:13:57] So the hardware designers have given us these very low-level
+[1:14:00] mechanisms called acquire and release,
+[1:14:03] actually more accurately release and acquire,
+[1:14:07] plus we play some games in the operating system and 482 will
+[1:14:12] teach you more or less how to do this although we kind of hand
+[1:14:15] wave at the release and acquire bits I think unless we've fixed
+[1:14:18] that.
+[1:14:21] Now the really cool stuff,
+[1:14:23] so not only the good is how to win big,
+[1:14:26] is that Go makes synchronization very easy
+[1:14:31] and by very I mean small values of easy.
+[1:14:38] So it's easy-ish and one of my primary claims
+[1:14:44] about 491 for those of you who have taken 492 and are convinced
+[1:14:48] you know how to solve this problem is that I have a better
+[1:14:51] way because the way I have to solve it in
+[1:14:57] 491 there are an entire class of errors that you can make with
+[1:15:02] the way you do in 482 that you just cannot do here if you use
+[1:15:06] the techniques that I'm going to show you.
+[1:15:10] So that's the that's the deal.
+[1:15:18] Before you go, I do have one other observation.
+[1:15:24] So remember we said these concurrent go routines can make
+[1:15:26] progress at arbitrary rates and they can interleave with each
+[1:15:30] other in arbitrary ways. What does that mean for our good
+[1:15:33] friend's sleep for one second?
+[1:15:41] Yeah?
+[1:15:42] It could actually not be for one second, it could be more or
+[1:15:46] less?
+[1:15:47] We can assume that it's definitely not less than a
+[1:15:50] second.
+[1:15:51] Okay,
+[1:15:51] but it could be more.
+[1:15:52] Well,
+[1:15:52] so the sleep will happen for a second,
+[1:15:55] but we don't know how long between waking up and executing
+[1:15:59] the next thing will be.
+[1:16:01] So, I'm willing to say that the sleep will happen for exactly
+[1:16:03] one second. That doesn't tell us anything
+[1:16:06] about how long it will take us to perform the next action,
+[1:16:09] just that the next action would be able to begin at the end of
+[1:16:12] that second.
+[1:16:13] But there's another problem.
+[1:16:29] what's the other problem yes
+[1:16:32] necessarily take one second to
+[1:16:37] finish yeah exactly so in all of the we don't maybe maybe a
+[1:16:43] second is tons of time maybe not and we don't really know.
+[1:16:48] Every execution I've shown you and in fact every execution I've
+[1:16:51] ever run all of the counters print their final line before
+[1:16:55] the main go routine has exited.
+[1:16:57] I have never seen an execution
+[1:17:00] for which one second was not enough.
+[1:17:04] Does that mean this is correct?
+[1:17:08] You're shaking your head no, why not?
+[1:17:10] Because it might take more than one second.
+[1:17:14] It's possible,
+[1:17:15] and I just haven't found that execution yet.
+[1:17:18] But in the universe of all future executions of this
+[1:17:21] program,
+[1:17:22] there exist executions in which one or more of the counters does
+[1:17:26] not finish before the main go routine ends.
+[1:17:31] That has some very important implications for this class,
+[1:17:34] some good and some bad.
+[1:17:37] The first is that correctness is not defined
+[1:17:42] as it never does the wrong thing when I run it.
+[1:17:49] Correctness is defined as the wrong thing is impossible.
+[1:17:55] That's what we mean by correct here.
+[1:17:59] That's the downside because what that means is you cannot test
+[1:18:03] your way to correctness unless you can test all possible
+[1:18:07] interleavings of the program and you do not have that much time
+[1:18:10] between now and the heat death of the universe.
+[1:18:14] Even for simple stuff.
+[1:18:17] There is some good news about it though.
+[1:18:20] How do I evaluate your programs?
+[1:18:26] Yeah?
+[1:18:27] An autograder.
+[1:18:27] An autograder, what does the autograder do?
+[1:18:32] Go ahead.
+[1:18:32] A finite number of tests. It runs at a finite number of
+[1:18:35] times.
+[1:18:36] I guarantee you that finite number is probably not one.
+[1:18:41] Because you might just get lucky.
+[1:18:44] And I don't want to reward lucky.
+[1:18:46] I want to reward mostly good.
+[1:18:49] It does mean it is possible to submit programs that are
+[1:18:53] incorrect that nevertheless get full credit if their
+[1:18:57] incorrectness is rare enough.
+[1:19:01] We'll struggle with that a little bit as we go,
+[1:19:04] but we'll do that next time. I'll see you then.
