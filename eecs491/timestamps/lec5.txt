@@ -1,0 +1,1569 @@
+[00:02] All right.
+[00:05] Last time we talked,
+[00:07] we talked about the importance of using, just like any other
+[00:11] piece of structure in our program, how we structure the
+[00:15] functions,
+[00:16] how we structure data,
+[00:18] how we structure channels conveys meaning about the
+[00:22] structure of our program
+[00:23] and how we intend it to behave.
+[00:26] and this requires thinking pretty carefully about program
+[00:29] structure and this is a thing that's actually not easy to do
+[00:34] and it's not something that we actually teach particularly
+[00:38] directly and I'm not sure even how I would
+[00:41] other than for example diagramming things out like
+[00:47] there are a couple of my IAs use diagramming tools to diagram the
+[00:52] logical structure of their program.
+[00:54] That's one way of actually getting to this, and it's pretty
+[00:56] helpful.
+[00:58] I think there might be a post on Piazza on it, if not, we'll make
+[01:01] sure there is one.
+[01:03] Because it helps your reader understand your thought process,
+[01:05] and that reader might be you,
+[01:07] you know, down the road.
+[01:09] We also talked about a model of using channels to provide
+[01:13] something called data passing.
+[01:15] And in data passing, we have a bunch of coordinated,
+[01:18] a bunch of go routines that are coordinating on some job and
+[01:22] they pass the data necessary to perform the job back and forth
+[01:25] between themselves.
+[01:26] One of the nice things about data passing is that there's no
+[01:29] shared mutable state.
+[01:32] So it's completely impossible for two go routines to touch the
+[01:35] same piece of memory concurrently
+[01:37] through a pointer in a way that can't be reasoned about.
+[01:41] So that eliminates a bunch of really difficult to find and fix
+[01:44] bugs,
+[01:45] but it still requires us a reason about ownership,
+[01:48] because logically,
+[01:50] there's only one copy of this state,
+[01:52] and so we need to somehow track in our heads, and as we're
+[01:55] writing this program,
+[01:57] whether this particular Go routine owns the copy of the
+[02:00] state or not.
+[02:03] And that still leaves us open to a number of potential errors
+[02:09] that are,
+[02:09] and they're not as hard to fix as shared memory errors, but
+[02:13] they're still unpleasant.
+[02:15] So, we started building an idiom called lexical confinement and
+[02:20] you can implement lexical confinement in two ways.
+[02:23] The way I'm showing you in lecture is with function
+[02:25] shipping.
+[02:27] What's cool about function shipping is that you build this
+[02:30] confined piece of state completely generically and you
+[02:34] can apply any function to it at all.
+[02:37] That's a little unusual if you've never used function
+[02:39] shipping before or never used a language with functions as first
+[02:43] class arguments or never really used functors.
+[02:46] That's a little bit weird.
+[02:48] So there is another way of doing this and we're going to show you
+[02:50] an example.
+[02:52] Once we finish building this example out today,
+[02:54] we'll post an example of using it with instead of shipping
+[02:58] actual functions,
+[03:00] you encode all of the functions together with the confined state
+[03:05] and then you basically ship RPC requests to it.
+[03:09] So, you send a little bit of data to it that says which
+[03:13] function to operate on and where to put the result.
+[03:18] But either way, whether you're implemented with function
+[03:20] shipping or essentially as remote procedure call,
+[03:26] either way, a single entity, a single Go routine, owns and
+[03:31] exclusively names the state in question.
+[03:34] So, the basic idea is only one Go routine can ever utter the
+[03:37] name of the state, which means no one else can ever touch it
+[03:41] directly.
+[03:42] The only way they can touch it is either through sending a
+[03:44] function to the Go routine that owns it, or asking the Go
+[03:48] routine to run one of its predetermined functions on its
+[03:51] behalf.
+[03:54] Today we're gonna finish building out that confinement
+[03:56] example. That's probably gonna be about
+[03:58] the first third of lecture, maybe a little more.
+[04:01] And then we're gonna introduce the notion of consistency.
+[04:04] Now consistency is just the set of promises made by the system
+[04:08] about how operations on data behave.
+[04:12] And you would think that's not that complicated, but it turns
+[04:14] out to be one of the central topics of the course.
+[04:18] And what we'll see is that sort of your model of computation so
+[04:22] far is that you perform an operation,
+[04:25] you write a piece of operation, when that line of code executes,
+[04:28] the operation happens.
+[04:30] Before the line of code executes, the operation hasn't
+[04:33] happened. after that line of code
+[04:34] executes,
+[04:35] the operation has happened and everybody can agree on the
+[04:37] timeline in which things occur.
+[04:39] One of the interesting things about the confinement example is
+[04:43] that it's taking concurrency and reducing it to something very
+[04:46] similar to that, where everyone can agree there's a before and
+[04:50] after of every single operation on this state, even though
+[04:54] multiple go routines are trying to modify it at once.
+[04:58] Which makes things very easy to reason about.
+[05:00] The problem is, is that in distributed systems, it's
+[05:03] impossible.
+[05:05] And the reason it's impossible is because we're sending
+[05:08] messages back and forth that both take measurable time and
+[05:12] can be lost.
+[05:13] And because of that, no one can ever agree precisely on when
+[05:17] something happens.
+[05:19] And that makes the set of promises made by the system of,
+[05:22] you ask it to do an operation, when does that operation happen,
+[05:25] that actually turns out to be complicated.
+[05:27] And it's complicated even if we have a single server that isn't
+[05:32] replicated.
+[05:34] It gets even worse when we start replicating data, which we're
+[05:37] going to need to do.
+[05:38] But even if we just have a single server, it turns out to
+[05:41] be difficult.
+[05:41] So today I'm going to introduce the notion of linearizability.
+[05:47] So you can think of consistency as existing across a spectrum
+[05:51] from the weakest possible
+[05:53] guarantees to the strongest possible guarantees.
+[05:56] And if we're talking about updates on a single data
+[05:59] element,
+[06:00] the variable X,
+[06:03] the strongest consistency model, the strongest set of guarantees
+[06:07] we can possibly provide are linearizability.
+[06:10] And you'll sometimes see people describe that as strong
+[06:12] consistency.
+[06:14] Now as a side, I'll just introduce the weakest is
+[06:17] eventually everyone will agree that an operation has happened.
+[06:22] And that's all you get.
+[06:24] That turns out to still be kind of useful, but not as useful as
+[06:29] linearizability.
+[06:30] Basically, linearizability is the distributed system's version
+[06:34] of making it look like every event happens in a total order
+[06:37] and instantaneously.
+[06:42] Okay, before I get started on today's material, does anyone
+[06:43] have any questions about anything we've talked about up
+[06:46] until this point? Yes.
+[06:47] So that weakest model that eventually everyone agrees that
+[06:51] an operation happened,
+[06:52] is that like just the basic consensus problem?
+[06:56] No,
+[06:57] consensus is everyone agrees that it happened in an order.
+[07:04] The eventual consistency is that if I submitted an operation to
+[07:09] the system and nothing else happens, there is a point in the
+[07:13] future at which everyone will know that it happened.
+[07:17] but that point in the future is unbounded.
+[07:20] So it's finite.
+[07:22] There is a point somewhere in the, if we roll time forward
+[07:25] long enough, eventually everyone will know that it, agree that it
+[07:28] happened.
+[07:29] But we can't say anything about how long that takes.
+[07:32] We also can't say anything about the order in which people see
+[07:35] things happen.
+[07:39] Other questions?
+[07:43] Okay.
+[07:45] So,
+[07:46] let's remind ourselves what this thing looked like.
+[07:48] So we have this confined integer.
+[07:50] The confined integer is represented by an abstract data
+[07:53] type of value.
+[07:55] The value holds within it an integer value.
+[07:58] We can construct them with the zero value to begin.
+[08:03] We can add offsets to it, positive or negative offsets.
+[08:07] We can get the current value and we can tell that we can destroy
+[08:10] the value that we've created. It's a pretty straight a pretty
+[08:13] simple data structure that data structure is represented by two
+[08:18] channels one on which we can send requests and requests are
+[08:22] just functions with an argument that is a pointer to int and it
+[08:27] can return anything it wants and then the responses are the
+[08:32] responses of the channel through which those return values are
+[08:36] discovered.
+[08:40] We've looked at how to create an instance.
+[08:43] We haven't looked, we don't know exactly how the instance does
+[08:46] its work yet, but the way we create an instance is while we
+[08:49] declare one of these things,
+[08:52] we create a double-ended channel called requests and another
+[08:56] double-ended channel called responses of the appropriate
+[08:58] type.
+[08:59] We assign requests and responses to the corresponding fields in
+[09:04] the value struct which limits the external client's ability to
+[09:09] read or write to them.
+[09:12] Then we launch this closure.
+[09:15] This closure just goes off and runs for as long as it runs
+[09:18] until it's done and it does something.
+[09:20] We'll talk about what that something is and once the
+[09:22] closure is launched it returns the result.
+[09:25] So the closure basically,
+[09:28] the basic idea behind the closure is that it's going to
+[09:30] read requests off of the request channel,
+[09:33] apply them to its local state,
+[09:35] take whatever return value is returned and send that return
+[09:39] value on the response channel.
+[09:41] And it's just gonna keep doing that until you destroy the
+[09:43] value.
+[09:50] All right,
+[09:51] so now,
+[09:52] so that's the part, that's sort of what we were talking about
+[09:55] last time. This is the part where we're
+[09:57] new, so we haven't seen this bit yet.
+[10:00] All of the methods follow the same pattern.
+[10:04] They're gonna declare a function that implements the work of the
+[10:07] method as a closure.
+[10:12] Then it's going to pass that function to the value closure as
+[10:15] a request.
+[10:18] Then it will, the value closure will do its work, it will send
+[10:21] the response over the response channel,
+[10:23] then it reads and returns the response.
+[10:25] Those second two pieces are common to all of the methods
+[10:30] And this is going to be, this is a little bit extreme,
+[10:33] but one of the things, one of my very biggest pet peeves about
+[10:37] code,
+[10:39] is if you keep typing the same thing over and over and over
+[10:42] again,
+[10:43] that should have been a function.
+[10:45] Now this is two lines,
+[10:48] okay,
+[10:48] it's a little extreme, but I'm still going to do it just as a
+[10:52] sort of as an illustration.
+[10:54] So we're going to abstract those last two steps away into this
+[10:59] method on values called perform.
+[11:03] Perform takes the function as a request that returns an any,
+[11:06] sends that function to the request channel,
+[11:08] waits for the responses channel to yield a response.
+[11:10] Pretty straight forward.
+[11:15] Alright,
+[11:16] let's talk about how we build add.
+[11:19] So add needs to do two things. It needs to define a function
+[11:22] that will perform the work of an add
+[11:26] and then call the operation on it.
+[11:30] So the function that we're going to define and this is going to
+[11:32] be true for every method function we ever build on this
+[11:35] value because this is the type of a request.
+[11:39] A request is a function that takes a pointer to integer as an
+[11:42] argument and returns something of type any as a result.
+[11:47] Well, inside that generic type signature, we have to decide
+[11:51] what we're going to do. Well,
+[11:52] the what we're going to do is pretty straightforward.
+[11:54] We're going to take the argument that was passed to add, which is
+[12:00] delta.
+[12:02] We're going to add it to whatever the internal
+[12:05] representation happens to be currently.
+[12:09] and store it in the internal representation.
+[12:12] So, one of the things to notice is that this delta is this
+[12:15] version of the variable.
+[12:17] So, this is why we're using a closure.
+[12:19] So, the closures are written as a single argument on the state.
+[12:26] If you want to have more arguments to the function that
+[12:28] you're actually implementing,
+[12:30] you implement it as one of these closures.
+[12:31] This is also sometimes called a curried function.
+[12:40] And that's because there's a person by the name of Curry who
+[12:42] invented this idea that if you want to take a function of two
+[12:45] arguments, you can create it by having two arguments of one
+[12:48] function where one is nested inside the other.
+[13:00] All right,
+[13:02] sorry about the build there, that was awkward.
+[13:06] So,
+[13:07] requestor functions is one argument,
+[13:08] they capture any other parameters in the closure.
+[13:11] We don't care about the return value because add doesn't return
+[13:16] anything.
+[13:18] So because add doesn't return anything, the only thing we care
+[13:22] about is that the work of the add is done before add returns.
+[13:29] So it just returns nil,
+[13:30] don't care about it.
+[13:32] And then we call perform,
+[13:34] and likewise we're going to ignore the return value of
+[13:37] perform.
+[13:39] Do we all have return-ill explicitly split functions?
+[13:44] Yes, because the function is declared to return a value.
+[13:48] So it has to return something.
+[13:50] There's no implicit return?
+[13:52] No,
+[13:53] Go does not have an implicit return value.
+[13:55] So if you left that line of code out,
+[13:58] it wouldn't compile.
+[14:01] because func has to return a value of type any without a
+[14:05] return function there's no return value without a return
+[14:08] value you can't compile the function there's no void return
+[14:12] type well that's any any is anything just like void is
+[14:17] anything and you can return any value because any value would be
+[14:23] would satisfy the any value nil is convenient because nil is
+[14:27] Nothing.
+[14:31] And then we invoke the operation,
+[14:33] that's add.
+[14:35] So add is going to pass this function
+[14:37] with the value of delta bound by the outer most argument
+[14:42] to the closure, the closure will implement,
+[14:44] will apply this function to its copy of the integer
+[14:47] and then return nothing as a result.
+[14:53] Okay, the get method is going to do something similar,
+[14:58] right? So, get is going to define a function that takes a
+[15:01] pointer to an integer and returns something of type any,
+[15:04] and what it wants to do is return the current value that's
+[15:07] stored inside the closure,
+[15:10] so return pointer to value.
+[15:13] Now this is a little awkward because the return value of the
+[15:16] closure is of type any and the expression pointer to val is of
+[15:20] type int.
+[15:23] When operation returns,
+[15:25] all we know that operation is giving us is that it's of type
+[15:28] any.
+[15:30] So,
+[15:31] we call perform,
+[15:33] it applies to the function,
+[15:35] this anonymous function that's in the closure,
+[15:37] that function returns an integer because val is a pointer to an
+[15:42] integer. So we,
+[15:44] but all we know when we get back the value from perform is that
+[15:48] it is of type any.
+[15:51] Because the compiler doesn't know that that return value is
+[15:55] the thing that perform is going to return.
+[15:58] And so we have to do this dynamic type checking bit by
+[16:03] saying look I believe that the thing that I'm getting back from
+[16:07] perform is going to be an int.
+[16:09] Please when you're running this line of code check and verify
+[16:12] that for me,
+[16:13] and then return that.
+[16:15] So because if this check works correctly, the type of that
+[16:18] entire expression is an int,
+[16:21] which means it meets the type requirement of the return value
+[16:24] of get.
+[16:27] I wouldn't miss this,
+[16:28] but fn,
+[16:30] we can't just have the return type of fn be int, or does it
+[16:34] need to be a function? No, because if the functions,
+[16:37] if the return type of fn were int,
+[16:41] it would not type check to the other,
+[16:44] to the function, that the function has to type check
+[16:46] precisely.
+[16:47] So perform requires a function that returns int.
+[16:49] Yeah,
+[16:50] and even if it, and even,
+[16:52] and even if it, even if you said it returned an int,
+[16:55] perform is declared to return any, so you still wouldn't know.
+[17:04] All right, what about done?
+[17:06] Done is very straightforward.
+[17:09] All done does is close the request channel.
+[17:13] So closing the request channel is,
+[17:15] this is often called the termination idiom.
+[17:18] Closing a request channel is signaling to the person
+[17:21] receiving the requests that its work is done and it can finish.
+[17:28] So, this is a very common thing. In fact, you'll use this in your
+[17:31] projects from time to time.
+[17:34] Closing a channel,
+[17:35] closing a request channel or equivalently a termination
+[17:37] channel,
+[17:39] in our case, is going to notify the confining go routine that
+[17:42] it's done.
+[17:44] In response, the confining go routine can exit.
+[17:48] That does two really important things.
+[17:50] One is that the resources occupied by that Go routine are
+[17:54] freed up.
+[17:56] But also, that Go routine is the only thing that holds a
+[18:00] long-standing reference to the confined state, so that confined
+[18:03] state is also freed.
+[18:07] So, Make allocates the confined state and allocates the
+[18:10] resources to run a Go routine.
+[18:12] Done deallocates all of that stuff.
+[18:14] It doesn't actually deallocate it directly because Go is
+[18:17] garbage collected. So,
+[18:19] eventually the Go runtime will discover that the resources
+[18:22] needed by this Go routine are no longer needed and it will return
+[18:25] them to the free pool.
+[18:30] Questions so far?
+[18:31] Yes. What's the v.value
+[18:34] if that's for all the function names?
+[18:38] Like, are these functions that are outside of the strong
+[18:40] percentage?
+[18:42] v.value?
+[18:48] Like, func v.value?
+[18:49] So,
+[18:50] what this means is that done is a method
+[18:55] on instances of type value.
+[19:00] Okay,
+[19:02] so Go has methods like C++ has methods,
+[19:07] but Go doesn't have objects.
+[19:09] So you can declare a method anywhere you like.
+[19:12] And in fact anyone can declare a method of a type as long as they
+[19:16] have access to the underlying type.
+[19:18] You don't have to declare them together with the type itself.
+[19:28] All right, now what does the closure look like?
+[19:31] So remember the closure, it has the prelude before we define the
+[19:35] closure inside of makeValue
+[19:37] that defines the channels,
+[19:40] creates them and assigns them to the value we're going to return.
+[19:44] What is the work of the actual closure look like?
+[19:48] Well, the first thing we do is we declare inside the closure an
+[19:53] instance of the confined state. In this case, it's just an
+[19:56] integer.
+[20:00] This copy of that integer is only visible within this
+[20:04] closure.
+[20:06] No other function can name it directly.
+[20:09] The only way any other function can name it is if we pass it and
+[20:13] appoint her to to that function as an argument which is exactly
+[20:15] what we're going to do.
+[20:17] So we're going to range over the request channel.
+[20:20] Remember I said last time range just blocks waiting for
+[20:24] something to come on the request channel.
+[20:25] When something is on the request channel it pulls it off.
+[20:28] It's going to assign it to the a request variable,
+[20:31] a rec variable.
+[20:33] It's going to keep doing that until the channel request is
+[20:35] closed.
+[20:36] When the channel request is closed that for loop drops out.
+[20:44] Question.
+[20:46] Yes.
+[20:47] Is the channel request closed when done is called?
+[20:51] So when done is called, it closes the request channel.
+[20:55] Close can only be called on a writable channel.
+[20:58] But it turns out done has a writable copy of that channel.
+[21:08] So,
+[21:09] all this does is it pulls one of these requests off the channel.
+[21:13] That request is itself a function.
+[21:16] That function takes a pointer to an integer,
+[21:19] so we pass it the address of value.
+[21:24] That function returns something of type any.
+[21:28] We take the return value of type any and we stuff it in
+[21:31] responses. and that's it.
+[21:35] When the channel's closed,
+[21:37] we fall out of the request loop. That exits the go routine.
+[21:40] Everything is done.
+[21:47] And what happens?
+[21:48] Exactly what we expect.
+[21:51] Counter's initial, counter, each counter prints its initial
+[21:53] value.
+[21:54] Actually, interestingly enough,
+[21:55] some counters got to do some work before counter three
+[21:58] printed its initial value. All of the counters make roughly
+[22:03] equivalent process.
+[22:04] Three ends up starting last but finishing first, which is kind
+[22:07] of curious.
+[22:08] But just coincidental,
+[22:09] then counter one finishes,
+[22:11] then counter two finishes,
+[22:12] then counter zero keeps going until it's completely done and
+[22:16] when it's done,
+[22:17] the value is four million.
+[22:19] Just like we expect.
+[22:20] Question?
+[22:21] So on the previous slides,
+[22:24] the for loop will wait until the requests channel is closed and
+[22:29] it'll just keep waiting and not continue running the code below
+[22:32] it.
+[22:32] Right, so what the for loop does is it blocks reading from the
+[22:37] channel.
+[22:39] When somebody writes to the channel,
+[22:41] it pulls off whatever that is and instantiates an instance of
+[22:46] a request and assigns to it.
+[22:49] If the channel is closed, instead of pulling the request
+[22:52] channel off and assigning it to AREC,
+[22:54] it just terminates the for loop.
+[22:57] So that's what range does. Range is a really convenient
+[22:59] idiom in Go.
+[23:01] So if you have an array,
+[23:03] you can range over the array without declaring indexes and
+[23:07] all of that other stuff.
+[23:08] And you can just pull things off the array and you'll pull off
+[23:10] the index and its value through with each iteration through the
+[23:13] loop.
+[23:14] And when you've walked through the entire array, it just falls
+[23:16] out.
+[23:17] Same thing's true for slices.
+[23:19] The same thing is true for maps,
+[23:21] which are just hash tables.
+[23:23] The same thing is true for channels.
+[23:27] Yeah.
+[23:28] And also, so from last lecture,
+[23:31] I think you mentioned read and write only are only for
+[23:35] references to a channel, but the underlying channel itself is
+[23:39] always bi-directional. Correct.
+[23:41] But closure is a thing that is applied to the channel itself.
+[23:44] Correct.
+[23:45] Not a variable.
+[23:46] Correct.
+[23:47] Okay.
+[23:47] Yeah. All of the operations on the
+[23:49] channel apply to the channel itself, not the reference to it.
+[23:52] That's correct.
+[24:01] Alright, now,
+[24:04] this is pretty weird,
+[24:09] and I will admit up front,
+[24:10] this is pretty weird. If you haven't seen something
+[24:12] like this before, it's a little bit hard to wrap your head
+[24:16] around.
+[24:18] I encourage you to wrap your head around it,
+[24:21] because it's a really powerful way of expressing the problem.
+[24:26] The other way of expressing this problem, you'll see the example
+[24:29] code that one of the IAs wrote,
+[24:30] we'll put it up later today, which is instead of just
+[24:34] defining
+[24:36] the closure to be this generic loop of functions,
+[24:40] you define the closure to take a single argument that encodes all
+[24:44] of the possible arguments to all of the possible functions
+[24:47] with a tag at the beginning and then you switch on the beginning
+[24:50] of that tag then you call the appropriate function based on
+[24:54] the tag switch.
+[24:55] Which you can do,
+[24:57] and it may be a little bit more clear the first time you build
+[25:02] one of these things. So you can build project one
+[25:05] either way.
+[25:07] Starting with project two, we want you to do it with function
+[25:10] passing. but you can do it with sort of
+[25:14] method invocation on project one if you would prefer.
+[25:18] You can even write it both ways, project one is not that long.
+[25:22] So you could write it as the method invocation way first and
+[25:25] then rewrite it as the function and you can do that anytime.
+[25:28] You don't have to do it for correctness.
+[25:33] So,
+[25:33] and the reason I say this is that
+[25:38] Historically,
+[25:39] I'm not promising I'm going to do this.
+[25:41] Let me make it clear, I'm not promising I'm going to do this.
+[25:44] But historically, I have often asked a question on the midterm,
+[25:48] what's the most interesting thing you've learned about Go so
+[25:51] far?
+[25:52] And I often ask a question on the midterm, what's the piece of
+[25:55] the class that's been the most challenging so far?
+[25:58] Again,
+[25:59] not promising,
+[26:00] but I have done it in the past.
+[26:04] So last semester was the first semester I taught confinement
+[26:07] with function passing instead of method invocation.
+[26:13] Prior to last semester,
+[26:15] almost universally,
+[26:17] the answer I got from what's the coolest thing you've learned
+[26:19] about Go so far was,
+[26:21] man, this confinement thing is really cool.
+[26:23] I hated it at first,
+[26:24] and then when I tried it,
+[26:26] I loved it, it is so much easier than using mutexes.
+[26:29] Totally cool.
+[26:31] And then the thing that was the hardest to wrap their heads
+[26:34] around was usually the next thing we're gonna talk about,
+[26:36] which was linearizability.
+[26:40] Last semester,
+[26:41] much to my surprise,
+[26:44] the thing in the midterm that everyone said was,
+[26:46] not everyone, but a solid plurality of the students said
+[26:50] that was the hardest thing to wrap their heads around was
+[26:52] confinement.
+[26:54] And I think the reason is that I'm teaching it now is this
+[26:57] function passing idiom instead of method invocation.
+[27:01] And again,
+[27:02] that's two different things. Now you're learning about the
+[27:04] confinement idiom and you're learning about function passing
+[27:07] along the way with generic tights,
+[27:10] all of which is new.
+[27:13] So I get it.
+[27:14] So that's why project one, if you want to build it with the
+[27:17] method invocation way and we'll give you the code for the
+[27:20] confined integer using method invocation so you can see what
+[27:22] it looks like,
+[27:23] you can decide.
+[27:25] But over time, I'd like you to internalize both of these ideas,
+[27:28] because they turn out to be very, very powerful,
+[27:32] because by the end of last year, people were really happy with
+[27:35] it.
+[27:36] But it took longer.
+[27:38] Okay, that's fine.
+[27:39] I'm not going to begrudge that.
+[27:42] I would not be surprised if it plays out the same way.
+[27:47] So let's talk a little bit about what it costs.
+[27:49] So if we build a version with mutual exclusion, I talked about
+[27:52] this last time, it's about half a second that's and it's a
+[27:57] little faster than the fine-grained data passing
+[27:59] version because the fine-grained data passing version uses
+[28:02] blocking channels which insists that you always do a context
+[28:07] switch for every single operation the mutex version
+[28:11] probabilistically does a context switch at every lock drop but it
+[28:16] isn't guaranteed to so there are some times when the same context
+[28:19] gets to run a couple more times which takes advantage of some
+[28:22] cache effects.
+[28:23] So the difference between fine-grained data passing and
+[28:26] mutual exclusion is that mutual exclusion sometimes gets lucky
+[28:29] with cache effects and so it can run a little faster.
+[28:32] But it's doing the same amount of work.
+[28:36] The confinement problem now has two handoffs
+[28:42] for every operation instead of one handoff for every operation.
+[28:47] Right before we had a go routine passing an integer to another go
+[28:51] routine.
+[28:51] That's one handoff per operation.
+[28:54] Now, I'm sending a function to a go routine, performing the
+[28:57] operation,
+[28:58] sending the value back. Now, there are two handoffs per
+[29:01] operation.
+[29:03] And, as you would expect,
+[29:05] because there are two handoffs per operation, instead of one
+[29:07] handoff per operation, it takes roughly twice as long.
+[29:12] Okay,
+[29:14] what does twice as long It means on my machine,
+[29:17] 300 nanoseconds per invocation.
+[29:23] And again,
+[29:24] that's in the context of blocking IO.
+[29:27] We're probably doing a handful of these every time we read
+[29:30] something off the network.
+[29:31] We sent something over the network, it took milliseconds.
+[29:35] Adding an extra 150 nanoseconds to something does not bother me.
+[29:42] Now, this could turn out to be a throughput limitation.
+[29:46] If it's a throughput limitation,
+[29:48] then and only then would I rewrite it using mutexes.
+[29:55] Because getting the mutex stuff right is harder.
+[30:02] So it's still cheap relative to IO,
+[30:05] but in exchange,
+[30:08] well first the counters don't have any idea that they're
+[30:12] concurrent.
+[30:15] You can call them sequentially or concurrently and you don't
+[30:18] need to change how they are written at all,
+[30:21] which is remarkably cool.
+[30:24] They just work correctly because the abstraction you're passing
+[30:28] them builds concurrency in under the hood,
+[30:33] right? So that's the first cool thing is that now lots of things
+[30:37] just don't even need to know that any of this stuff is
+[30:39] concurrent at all.
+[30:41] It just works.
+[30:42] Just like channels just work.
+[30:45] A value just works.
+[30:47] No matter how many go routines are touching it.
+[30:49] It's all fine.
+[30:52] More importantly,
+[30:54] you cannot make a concurrency mistake with a value,
+[31:00] because only one go routine can ever access it.
+[31:04] It is exclusively owned and referenced by one running
+[31:08] context.
+[31:12] Because it's exclusively owned and referenced by one running
+[31:15] context, It is impossible to forget to acquire the value,
+[31:21] to forget to call lock,
+[31:23] or to forget to pull something off a channel.
+[31:27] It is impossible to forget to release the value.
+[31:29] It's impossible to forget to call unlock,
+[31:32] or it's impossible to forget to put the value back on the
+[31:35] channel.
+[31:36] And it's impossible to use the value after you've released
+[31:39] ownership of it because you never had ownership of it.
+[31:47] And this is why,
+[31:48] historically,
+[31:50] a large number of 491 students, by the end of the class,
+[31:55] say wow, that confinement thing,
+[31:58] really cool.
+[32:00] Because in exchange for a little bit of extra boilerplate code,
+[32:04] which gets pretty easy to write,
+[32:06] you're really not writing much extra.
+[32:07] All of the bodies of the methods you would have had to have
+[32:09] written anyway,
+[32:10] and just surrounded them with new text.
+[32:14] The only extra thing you're writing is this little teeny
+[32:16] tiny piece of code that reads things off channels and writes
+[32:19] back.
+[32:20] That's it.
+[32:20] The rest of it's the same.
+[32:23] Now it feels like more because it's different, but it's not
+[32:26] actually different. You just have to think about it
+[32:28] the first time you write it.
+[32:32] So really you're writing just a teeny tiny little bit of extra
+[32:35] code. you have one extra go routine
+[32:37] running in your function,
+[32:39] and there's a little bit of a latency penalty.
+[32:44] Most code is not performance sensitive,
+[32:49] but bugs exist everywhere.
+[32:53] So this idiom allows you to write your code in a way that
+[32:56] makes it harder for you to make mistakes
+[32:58] in exchange for 150 nanoseconds per operation.
+[33:03] I will pay that every day and twice on Sundays.
+[33:08] Question?
+[33:09] Is this working?
+[33:11] You want an operation that depends on two concurrent
+[33:14] values?
+[33:15] You know in mutexes, you have to require the locks for both of
+[33:19] them,
+[33:19] and sometimes the deadlock can be fired down in the wrong
+[33:21] order.
+[33:22] Is there any issue?
+[33:23] So,
+[33:24] for confinement,
+[33:26] so if two different things have access, So,
+[33:30] I own this and you own that,
+[33:32] and I want that and you own this,
+[33:34] it's possible that we'll get stuck,
+[33:37] right?
+[33:38] The same thing can happen with confinement.
+[33:39] If this confining go routine wants to operate on this
+[33:42] confined state,
+[33:44] and this confining go routine wants to operate on this
+[33:46] confined state,
+[33:47] they can run into each other.
+[33:49] We will run into this in project two.
+[33:53] There are two ways to solve it.
+[33:55] One is,
+[33:57] always have it go in one direction, which turns out to be
+[34:00] the same solution that you would use using mutexes, right?
+[34:04] The canonical solution to this problem using mutexes is to
+[34:07] apply a total order on any mutexes that are held at the
+[34:11] same time and always acquire them in that order.
+[34:14] This works the same way it's just that the requests always
+[34:16] flow and you have a directed acyclic graph of requests and
+[34:21] requests only flow along the graph.
+[34:24] The other way to do it if you really need something to go
+[34:26] mutually is to have one of them be asynchronous you can do that
+[34:29] if you don't care about the result.
+[34:32] Either solution will work in project two for the problem that
+[34:36] it has,
+[34:38] right?
+[34:38] So one of the things you can do is instead of instead of calling
+[34:41] the method synchronously you call the method
+[34:44] itself in a go routine because you don't care how long it takes
+[34:48] and you don't care about the return value.
+[34:52] Okay,
+[34:53] no problem.
+[34:55] Other,
+[34:55] so part of,
+[35:00] part of why there's so many similarities to all of this is
+[35:04] fundamentally we're solving the same problem.
+[35:07] And you kind of need roughly the same principles
+[35:12] to solve the same problem.
+[35:14] But you can use different mechanisms that encode the
+[35:17] principles.
+[35:18] This mechanism encodes the principles in a way that's
+[35:21] harder to make mistakes.
+[35:23] That doesn't mean you don't have to think about it,
+[35:25] right? You still have to think about it, because there are
+[35:28] higher level issues that you can sometimes run into.
+[35:32] But it eliminates some of the lower level problems, and then
+[35:36] you just don't have to think about that stuff.
+[35:39] There's an equivalent version of this,
+[35:45] see how I can tell this without having to teach like three
+[35:49] lectures of 482.
+[35:52] One of the requirements of Project 2 and 482 is that you be
+[35:57] able to handle exceptions
+[36:01] correctly.
+[36:03] If you've done 482, Project 2, you know the answer, you know
+[36:05] what I'm talking about. But,
+[36:07] if you run out of memory, that throws an exception and you have
+[36:10] to be able to handle that correctly without leaving a lock
+[36:12] stranded.
+[36:14] If you build your locks using a particular idiom that we
+[36:18] introduced in 4.82, which is RAII,
+[36:21] you get that for free.
+[36:24] The thing that in Go that's equivalent to that is defer,
+[36:27] right? One of the cool things about defer is that defer runs
+[36:30] whether the function that that it's inside returns or throws an
+[36:35] exception. No matter how that function
+[36:37] exits,
+[36:38] the defers always happen.
+[36:40] So if you acquire dynamic resources, you always release
+[36:43] them via defer to guarantee that they're going to be released
+[36:47] whether you return or throw an exception.
+[36:49] RAII is the same mechanism in C++ kinda sorta.
+[36:53] So I had a student walk into my office with a bug,
+[36:56] project two, and I'm looking at the code and I'm looking at the
+[36:58] bug and I'm looking at the test case they're failing.
+[37:00] And I'm like,
+[37:02] oh,
+[37:02] they're leaving a lock stranded when an exception is thrown.
+[37:06] Immediately followed by the thought,
+[37:08] I never thought about that.
+[37:11] How is it that my solution works?
+[37:14] And the reason my solution worked is that I happened to
+[37:17] build it with RAII because I rebuilt it, I hadn't done it
+[37:20] before,
+[37:22] and I just didn't think about the exception thing.
+[37:24] And it turns out you don't need to think about the exception
+[37:26] thing because RAII just transparently handles it for
+[37:28] you. So, even if you're me,
+[37:31] with a broken brain,
+[37:33] it still just works,
+[37:36] right?
+[37:36] That's what this is about.
+[37:39] You don't have to, you just eliminate having to think about
+[37:42] a bunch of problems.
+[37:44] So while you're running a code, if there's a problem that you
+[37:46] just forget to think about,
+[37:47] that's okay,
+[37:49] because you can't break it.
+[37:54] I'm a big fan of having my own stupidity be unpenalized, right?
+[38:00] And that's kind of what this idiom allows me to do.
+[38:05] Other questions?
+[38:12] All right,
+[38:14] let's go ahead and take a two-and-a-half-minute break.
+[38:17] When that clock says 11-11, we will return.
+[38:49] So for this,
+[38:52] is it just like we want one smart part of the actual data to
+[38:57] be all that fast?
+[38:59] Yep.
+[39:00] And then these methods just pass a function to the node.
+[39:04] I know it would be...
+[39:15] So the counter
+[39:17] uses an instance of this value,
+[39:23] so it
+[39:25] requests
+[39:31] the other values,
+[39:34] or they're Okay,
+[39:37] so anyone else can send me these.
+[39:52] Okay,
+[39:56] I'll do that.
+[40:23] It's like a five second question.
+[40:39] All right.
+[40:44] So let's talk a little bit about this value type because there's
+[40:47] another advantage that this idiom provides us,
+[40:51] that turns out to be important.
+[40:55] So what if value has concurrent callers? And in fact,
+[40:58] in our example,
+[41:00] there are concurrent callers because there could be four
+[41:02] counters running at any one time, all of which are trying to
+[41:05] add at the same instant.
+[41:09] Well,
+[41:10] if they're concurrent callers, every single caller can block
+[41:14] when making any request on a value.
+[41:17] Because they have to wait for anything else the value is doing
+[41:20] to finish.
+[41:22] If any callers exist,
+[41:25] they are admitted to the closure that owns the enclosed copy
+[41:30] one at a time.
+[41:32] So there might be a bunch of callers calling the add method.
+[41:36] One of them will be allowed in,
+[41:39] and another one won't be allowed in until this one is done,
+[41:44] right? because the request channel is unbuffered and
+[41:48] synchronous.
+[41:50] So, and I don't read from the request channel until after I've
+[41:53] responded to the prior request.
+[41:57] So, everybody else who's waiting for this value is going to block
+[42:02] until the current method is done executing.
+[42:08] And that admitted caller executes its operation all the
+[42:12] way to completion,
+[42:13] and then it's done.
+[42:16] Now, what's interesting about done is that normally we
+[42:22] can't say anything about when two different go routines
+[42:25] execute some operation because their rates of execution are
+[42:30] different and unknown and variable.
+[42:33] However,
+[42:35] the time of the completion of an operation is agreed upon.
+[42:39] The time at which an operation starts may not be, so I may call
+[42:43] add and block for 20 seconds while the value is doing other
+[42:47] stuff.
+[42:48] And the value won't start my operation until that 20 seconds
+[42:51] has elapsed.
+[42:52] So the caller and the callee may not agree on the time at which
+[42:57] the operation starts. The caller may see the operation
+[42:59] start earlier because the caller may block.
+[43:03] However,
+[43:05] the caller and the callee agree exactly on when the operation
+[43:10] ends because the response channel is unbuffered and
+[43:16] synchronous.
+[43:17] So if I'm the enclosing go routine and I return a response
+[43:21] to the caller, that response is blocked until the caller
+[43:25] receives it.
+[43:26] And the sending of the object and the receiving of the object
+[43:30] are guaranteed to happen at the same time.
+[43:36] That turns out to be incredibly important
+[43:40] because
+[43:47] both agree on exactly when the operation ends.
+[43:50] So the order of operations on a confined value is defined by the
+[43:55] order in which operations end and all observers can on what
+[44:00] that order is.
+[44:02] Everyone agrees on the order of events on a value.
+[44:07] And it's because of this synchronous connection on the
+[44:10] response channel.
+[44:14] So now we have a very clear model of a confined value for
+[44:18] callers.
+[44:19] All of the operations occur in the order of completion.
+[44:24] And there's always a well-defined set of events that
+[44:27] happened before this one, and a well-defined set of events that
+[44:31] happened after this one.
+[44:32] And everyone agrees on what those events are,
+[44:36] without having to think about it.
+[44:39] So the caller can treat any call to one of these things as if it
+[44:44] is entirely sequential, because that's how it's implemented.
+[44:48] And it doesn't start until all of the before operations have
+[44:53] completed.
+[44:55] Again,
+[44:56] because it's a synchronous channel and the confining go
+[44:59] routine will only do one thing at a time.
+[45:03] None of the after operations will start until after this one
+[45:07] completes,
+[45:09] which means that all operations are guaranteed to see
+[45:15] all before effects and all operations are guaranteed to
+[45:21] be visible to all after operations.
+[45:25] And everyone agrees on what the before set is and what the after
+[45:28] set is, and no one has to sort of sort out confusion.
+[45:35] That's incredibly powerful because now this thing behaves
+[45:39] just like an atomic instance of a thing that doesn't have
+[45:43] overlapping operations because that's how we built it.
+[45:46] Question.
+[45:49] So this system, it doesn't prevent deadlock,
+[45:53] right?
+[45:54] Correct.
+[45:55] But neither does mutual exclusion.
+[45:58] So if you want to shoot yourself in the foot, you can use either
+[46:00] gun.
+[46:01] No problem.
+[46:04] Yes?
+[46:05] I have a question about multi-node systems.
+[46:09] Yeah,
+[46:10] we're not there yet.
+[46:12] Would we also use channels to communicate across? Well, we use
+[46:16] networks to communicate across multi-node systems,
+[46:20] right?
+[46:21] Networks have different behaviors than this, and that's
+[46:24] where we're going next.
+[46:26] So checks in the mail.
+[46:27] Non-negligible latency.
+[46:28] Because they have non-negligible latency, exactly right.
+[46:32] So we would like,
+[46:34] so we're going to build a server.
+[46:36] Just one server,
+[46:38] one copy of the server that's going to do one thing at a time.
+[46:41] Just like we have one Confining Go routine that has one copy of
+[46:46] the data that does one thing at a time.
+[46:48] And we would like to build that server in a way that provides a
+[46:53] similar set of guarantees to all of the callers that there's one
+[46:57] order in which everything happens and everyone agrees on
+[46:59] what it is.
+[47:01] And the problem is that that is not easy.
+[47:05] And in fact,
+[47:06] doing that even for one server with everything that's
+[47:11] synchronous, still requires us to think at least a little.
+[47:16] And that's what Project 1 is about.
+[47:20] And the reason it's hard is that,
+[47:23] well there are two reasons, this is the first reason.
+[47:25] The first reason, which is the one you were alluding to is that
+[47:28] clients and servers cannot agree on the duration and importantly,
+[47:34] cannot agree on when an event ends.
+[47:38] And that's because the client's duration is always longer than
+[47:42] the server's and the client's perception of end is always
+[47:45] later than the server's.
+[47:49] Because an operation from the client's perspective lives from
+[47:53] the point at which I send a request
+[47:56] until the point at which I receive the response.
+[48:01] The server's impression of the duration is the point at which
+[48:04] it receives the request
+[48:06] until the point at which it sends the response.
+[48:10] Now, just like the confined Go routine example,
+[48:14] the caller might block on the send long before the receiver is
+[48:19] ready to receive it. But they agree on when it's
+[48:22] done, because the done happens synchronously.
+[48:29] But messages always take measurable time, So the client's
+[48:34] duration is always guaranteed to be longer, even if nothing else
+[48:38] is happening in the system.
+[48:40] It doesn't require other things to be happening for this to be
+[48:43] true.
+[48:44] With the confined value example,
+[48:46] if nothing else is happening in the system, the caller and the
+[48:49] colleague agree exactly on the duration of a call.
+[48:55] It's actually not quite true, but fudging a little bit.
+[48:58] But because messages take measurable time,
+[49:04] there's always a longer period on the clients and that means
+[49:07] operations can always overlap from the perspective of the
+[49:13] clients even if they never do on the perspective of the server.
+[49:18] So that's the first problem why this model of having a very
+[49:22] well-defined sense that before and after is not easy.
+[49:30] The second reason why things that,
+[49:34] it's hard to provide a before and after,
+[49:36] is that failures exist. And because failures exist, even
+[49:41] if we have one server that does every operation synchronously,
+[49:45] one at a time,
+[49:47] there's still an opportunity for operations to overlap.
+[49:51] And the way that happens is the following pattern.
+[49:54] I have two clients,
+[49:55] Foo and Baz.
+[49:58] Foo issues operation bar,
+[50:00] the server responds,
+[50:02] but the response gets dropped.
+[50:04] While that response is wending its way through the network to
+[50:07] be dropped,
+[50:08] Baz issues operation quucks,
+[50:11] the server responds, Baz gets the response, Baz goes on its
+[50:14] way.
+[50:15] Foo doesn't get the response because it got lost, So, it
+[50:19] reissues the request bar.
+[50:22] That's not a second request, it's a duplicate of the first
+[50:26] one.
+[50:27] And from Foo's perspective, it's only one operation.
+[50:31] The fact that it had to send an extra request is immaterial
+[50:34] because it's the same thing.
+[50:36] It's no different than if the first request had been delayed.
+[50:40] From Foo's perspective, those are identical and they're
+[50:43] indistinguishable.
+[50:45] What this means is that the operation bar and the operation
+[50:50] quacks overlap at the server
+[50:56] and the client.
+[50:58] And there's nothing you can do to prevent this.
+[51:01] You cannot build a server, even a single server with no
+[51:04] replicas,
+[51:05] that does everything sequentially,
+[51:07] that doesn't have to think about concurrent operations.
+[51:11] You're just screwed.
+[51:13] Yes?
+[51:15] So the server waits for a response from one of the
+[51:17] clients.
+[51:18] Yeah, okay.
+[51:19] So,
+[51:20] how do I know you got the response?
+[51:24] Mom, I sent you a message back.
+[51:25] How do you know I got that response? Yeah,
+[51:29] that makes sense.
+[51:30] Yeah, right. No, this is the problem, right?
+[51:32] This is why,
+[51:34] remember, one of the fundamental truths of distributed systems is
+[51:37] you will never know my exact mental state because it always
+[51:41] takes time for me to communicate it to you.
+[51:45] That's just the deal,
+[51:47] right?
+[51:48] And because that's just the deal,
+[51:50] this is why, I mean,
+[51:52] this is why this course is so much fun.
+[51:55] Because there are inherent challenges to just the way we
+[51:59] think things work,
+[52:01] right? It forces us to think about the world in new and
+[52:05] completely different ways.
+[52:07] And I, look,
+[52:09] I'm gonna tell you a secret, and I usually don't,
+[52:11] actually I usually do say this, but it usually happens later.
+[52:15] So, the person who designed this course left, took a job at USC,
+[52:20] Southern California.
+[52:21] I'm a Berkeley grad, so I will not tell you what I refer to the
+[52:24] University of Southern California as,
+[52:26] but you can probably figure it out.
+[52:28] But I still like Harsha, he's a great person, even though he
+[52:30] chose institutions in a way that I find questionable.
+[52:35] I'd never taught this class before,
+[52:38] so we needed someone to teach it.
+[52:41] I'm like, well, okay, I guess I go where I'm needed at this
+[52:43] point in my career.
+[52:45] I had never read the Paxos paper before I taught this class.
+[52:49] I didn't read it until May, and I first taught it in September,
+[52:54] right?
+[52:54] But teaching this class has forced me to re-evaluate how I
+[52:58] think about computing, and I first taught it when I was like
+[53:01] 52,
+[53:04] right?
+[53:05] That's pretty neat.
+[53:09] So instead, let's talk about what our model for distributed
+[53:12] operations is going to be.
+[53:15] Distributed,
+[53:16] in a distributed system, there are going to be a set of N
+[53:19] events,
+[53:21] and those events are collectively issued by a set of
+[53:24] observers O.
+[53:26] An observer submits an event and gets the response to the event
+[53:31] back.
+[53:32] And by getting the response back, they've observed that the
+[53:35] event has occurred.
+[53:38] So every observable event has a beginning and an end.
+[53:44] The event has to occur some point between the beginning of
+[53:49] the event and the end of the event.
+[53:51] The problem is we don't know exactly when,
+[53:55] so I send the server a message saying please add 2 plus 2.
+[53:59] At some point the server will add 2 plus 2 and get 4.
+[54:03] They will eventually send me the answer 4, but I can never know
+[54:07] exactly when those two things got added.
+[54:09] It's just some time between the beginning and the end,
+[54:13] and in fact if you look at system with the right
+[54:16] perspective,
+[54:17] every single thing it ever does is like this.
+[54:21] You begin executing an instruction,
+[54:23] you end executing the instruction,
+[54:25] you don't know exactly when the the transistors change.
+[54:29] It changes somewhere between the beginning and the end,
+[54:32] right?
+[54:34] Now it must appear,
+[54:36] our goal is to build the system in a way that guarantees the
+[54:42] illusion that every event happens exactly once,
+[54:47] and that the set of events happens in some total order.
+[54:54] If that illusion were preserved,
+[54:57] then whenever any two observers were trying to figure out the
+[55:00] order of two events that they both were able to observe,
+[55:04] they would agree on the order in which they happened.
+[55:08] That turns out to be really important, because events are
+[55:12] not ordinarily reorderable.
+[55:14] And I haven't used this example yet, I'll use it when we start
+[55:17] talking a little bit later in the course, but if I deposit an
+[55:21] amount to my bank account, and I pay interest on the balance in
+[55:25] my bank account,
+[55:26] the order in which I do those things gives me a different
+[55:29] answer.
+[55:31] So I would like to agree with the bank on what the order of
+[55:35] those things was, And in fact, I would like different branches of
+[55:38] the bank to also agree on the order in which those things
+[55:42] happen.
+[55:42] So our goal is to provide this appearance.
+[55:46] Now we can't do total orders because we have messages.
+[55:53] We can only do partial orders.
+[55:55] And it might turn out that there's more than one actual
+[55:58] order of events that could satisfy this illusion because no
+[56:03] observer can see every single event I can't see your events
+[56:08] directly I can only see mine the server
+[56:14] can't know the beginning and the end times of any events only
+[56:18] when it receives and sends them right so there's no observer
+[56:23] there's there's no one who can sit above the entire system and
+[56:28] observe of what actually happens and say this is the order.
+[56:33] All we get is the collective set of observations
+[56:37] and whatever order happens has to occur,
+[56:41] however we satisfy events has to happen in a way that no two
+[56:46] observers observe two events happen in different orders.
+[56:53] All right,
+[56:55] so this boil, we can boil this down to two different kinds of
+[57:00] operations.
+[57:01] There are operations that modify state and operations that
+[57:04] observe existing state.
+[57:06] We're going to call the former writes and the latter reads.
+[57:10] Now some writes depend on existing states like if you're
+[57:13] doing an append,
+[57:15] that depends on existing state but it's still thought of as a
+[57:17] write.
+[57:20] So all of the right operations,
+[57:23] for this to work,
+[57:24] all of the right operations in the world must be totally
+[57:28] ordered.
+[57:29] There must be one order of rights and everyone has to agree
+[57:32] on what they are.
+[57:34] Because if that's not true,
+[57:36] then an observer that observes in between two rights could see
+[57:40] the fact that some people think it's one order and other people
+[57:43] think it's the other.
+[57:44] So there must be a total order of rights.
+[57:48] Now there might be many possible correct orders that you choose
+[57:52] for that total ordering of rights, but ultimately you can
+[57:54] only do one of them.
+[57:56] Eventually you have to decide the order in which you're
+[57:59] writing to values.
+[58:02] Whatever you choose,
+[58:04] you have to make sure that no observations can violate this
+[58:08] chosen total order.
+[58:11] Now, who can observe a right?
+[58:14] There are two ways rights are observed.
+[58:18] If I'm an observer that asks for the right,
+[58:20] when I get the right is completed message,
+[58:23] that's equivalent to observing that the right has occurred.
+[58:26] Because remember, the event has to happen somewhere between
+[58:28] sending the request and receiving the response.
+[58:31] Now, it turns out you don't have to build systems this way,
+[58:34] but we will. You could actually build systems
+[58:37] that the response is, yes, I will eventually get around to
+[58:40] performing your right.
+[58:42] But that's not strongly consistent in the way that we
+[58:45] want. We want the observers to know
+[58:47] what the order was. And if I tell you, yeah, I got
+[58:50] your right, I'm going to get to it.
+[58:52] Well, that doesn't tell you the order in which they happen.
+[58:55] We want the observers to know that.
+[58:58] So the observer who requests the right,
+[59:00] and when they get the response to the right, they have observed
+[59:04] that the write has occurred.
+[59:07] It's also possible for any observer who reads that key,
+[59:13] if they read the value that was written by this operation
+[59:19] then that observer also observes that the write has occurred,
+[59:24] right?
+[59:25] So there's gonna be some point the write request comes in,
+[59:29] we're gonna do some work,
+[59:31] at some point during the work we're going to say that the
+[59:33] write occurred.
+[59:35] If a GET comes in and can read that write before the final
+[59:39] write response gets sent, which could happen,
+[59:42] we can build our servers that allow concurrency.
+[59:45] There's nothing that says we can't, and in fact, in project
+[59:47] one, you will.
+[59:49] After that, you won't have to, but in project one, you do.
+[59:52] In project one, you have to allow reads and writes to happen
+[59:54] concurrently.
+[59:58] So, if a server who reads the key who reads the written value
+[1:00:01] after it, quote,
+[1:00:02] happened,
+[1:00:03] well, that reader might learn that the write happened even
+[1:00:06] before the person who asked the write
+[1:00:08] learns that it happened.
+[1:00:10] Nothing wrong with that.
+[1:00:11] Question?
+[1:00:14] Maybe this is a stupid question,
+[1:00:15] but can we look at the server's timestamps
+[1:00:19] in the response?
+[1:00:20] Ha, ha, ha.
+[1:00:22] How much time was left at the end of the Western Michigan game
+[1:00:25] after the second play?
+[1:00:32] Well,
+[1:00:33] that's what the Big Ten replay office said.
+[1:00:36] What did NBC say?
+[1:00:40] There were no seconds left.
+[1:00:44] Yeah,
+[1:00:45] so it turns out that if you have two
+[1:00:51] clocks, they will never precisely agree.
+[1:00:55] I mean, they might, but that's just happenstance.
+[1:00:57] We're not going to talk about why just yet,
+[1:00:59] but and we're going to have multiple clocks and in
+[1:01:02] particular the observer owns the clock.
+[1:01:06] So if the observer's clock and the other place this happens in
+[1:01:10] courses not named 491
+[1:01:12] is when your laptop's clock is a little bit slower than the
+[1:01:17] autograder's clock.
+[1:01:19] Professor Noble, I submitted my project when my clock said 11 59
+[1:01:23] and the autograder or said it was 1201,
+[1:01:26] it's tough.
+[1:01:28] Too bad,
+[1:01:29] you're late,
+[1:01:31] right?
+[1:01:32] So,
+[1:01:35] if there's only ever one clock that we're all ever gonna talk
+[1:01:39] about,
+[1:01:39] then yes.
+[1:01:41] However,
+[1:01:43] the point of distributed systems is to not rely on the failure of
+[1:01:46] one thing.
+[1:01:48] Because if we were gonna do that, this class is like three
+[1:01:50] weeks long.
+[1:01:51] We'd be done at the end of today.
+[1:01:53] Okay,
+[1:01:54] not very interesting,
+[1:01:57] I mean you can be,
+[1:01:59] but I'm not stopping after this week.
+[1:02:03] Okay,
+[1:02:05] so there are two rules for observable rights.
+[1:02:09] The first rule is the permanence rule.
+[1:02:12] If an observer observes that a right has happened,
+[1:02:16] no later observer can observe that the right hasn't happened.
+[1:02:22] That seems obvious,
+[1:02:24] and it seems easy,
+[1:02:25] and it's not.
+[1:02:27] In fact, this is one of the bugs you can make in Project 1.
+[1:02:29] It's pretty easy to make.
+[1:02:32] Then there's also an order rule.
+[1:02:35] If any observer observes by reading, and all of these
+[1:02:38] guarantees are just about one value.
+[1:02:40] There's only one key.
+[1:02:43] If any observer observes the right A to the key, followed by
+[1:02:47] changing the value of the key to B so the value of the key maybe
+[1:02:51] was empty it becomes A and then it becomes B and I observed
+[1:02:54] those two transitions no other observer can observe the key go
+[1:03:00] from empty to B and then A because then they don't agree on
+[1:03:04] the order all right those are the observation calls
+[1:03:09] now that seemed that all seems very straightforward
+[1:03:14] but it It turns out there are some weird consequences to it.
+[1:03:20] So let's start with a very simple example.
+[1:03:22] There are two clients,
+[1:03:24] one key.
+[1:03:25] The initial value of the key is zero.
+[1:03:28] The first client issues a put,
+[1:03:31] changing the value of the key to one.
+[1:03:33] The second client issues a get,
+[1:03:35] getting the value of the key.
+[1:03:37] There are three possible timelines.
+[1:03:41] The first possible timeline for the server is that it sends the
+[1:03:45] response for B before it sees A's request.
+[1:03:49] So it has no idea A is ever going to happen.
+[1:03:52] And if it has no idea A is going to happen,
+[1:03:54] the only possible answer is zero.
+[1:04:00] The other possibility is that it sees the B request after it
+[1:04:04] sends the A response,
+[1:04:06] and for reasons we're gonna get to,
+[1:04:08] if I sent A the response,
+[1:04:11] Let's say even A received the response.
+[1:04:13] That's really how I probably should have named this.
+[1:04:16] If a server sees B's request after A sees its response,
+[1:04:21] then A knows the write has happened,
+[1:04:24] B also has to reveal that the write has happened.
+[1:04:32] What if A and B overlap?
+[1:04:36] So the clients send them, they arrive at the server at roughly
+[1:04:38] the same time. what must the answer to B to A
+[1:04:42] to B be?
+[1:04:47] Yes.
+[1:04:48] Zero to one.
+[1:04:49] Exactly.
+[1:04:50] So if they overlap,
+[1:04:53] they can be either zero or one.
+[1:04:56] Not a problem.
+[1:04:58] And that's because the server,
+[1:05:00] when it has concurrent operations,
+[1:05:02] is allowed to decide what order the operations will happen in.
+[1:05:07] So if it has both of the operations in hand,
+[1:05:10] it can decide to serve the get first, in which case it's zero,
+[1:05:13] or it can decide to serve the put first, in which case the get
+[1:05:16] must field one.
+[1:05:19] This is one of the things that's also troublesome about this
+[1:05:22] class, is that there are many instances
+[1:05:25] in which the answer to what must this operation be is,
+[1:05:29] I don't know.
+[1:05:30] It could be these three things,
+[1:05:33] all of which would be correct.
+[1:05:35] That is probably a situation in which you're uncomfortable with.
+[1:05:40] Because you probably haven't written many programs in which
+[1:05:42] the actual correct answer is,
+[1:05:44] I don't know.
+[1:05:46] But it's not this.
+[1:05:47] It's only one of these things.
+[1:05:50] But I don't know exactly which one.
+[1:05:53] And in fact, if you read the test cases in project one,
+[1:05:57] we're already giving you test cases that are
+[1:06:00] non-deterministic.
+[1:06:01] There isn't a single answer that is correct for some of those
+[1:06:04] test cases.
+[1:06:05] They're a family of correct possible answers, and as long as
+[1:06:08] you give me one of them,
+[1:06:09] you're right.
+[1:06:14] All right,
+[1:06:14] same scenario, but now we've got three clients.
+[1:06:18] We're going to start the key at zero.
+[1:06:20] A is going to issue a put.
+[1:06:22] The change is the key to one.
+[1:06:24] B and C are each going to issue get.
+[1:06:26] And we're going to imagine that the gets do not overlap with
+[1:06:29] each other.
+[1:06:30] So the gets are completely separate in time.
+[1:06:33] but the PUT overlaps with both of them.
+[1:06:38] All right, now what happens?
+[1:06:42] Well, the first GET could return either 0 or 1.
+[1:06:48] For the same reasoning that the GET in the previous example
+[1:06:52] could have returned 0 or 1,
+[1:06:54] because if we just ignore that the second GET exists, we
+[1:06:57] already know that the answer to the first GET is 0 or 1, and at
+[1:07:01] the point we're deciding on the first get we don't know the
+[1:07:03] second get will ever happen but if the
+[1:07:09] first get returns one we have to give the illusion that each
+[1:07:14] operation happens exactly once at a total order so if the first
+[1:07:20] get returns one then the put operation must have happened
+[1:07:24] before the point at which the get operation happens
+[1:07:28] because from the external observer's point of view
+[1:07:32] everything happens exactly once in a total order so that means
+[1:07:36] that there's some the put we imagine the put maybe happened
+[1:07:39] here and the get maybe happened here if that's the case
+[1:07:45] what must the second get return has to be
+[1:07:50] one because the later get can only happen somewhere between
+[1:07:56] this point,
+[1:07:57] and this point,
+[1:07:58] no matter where we choose on that red line,
+[1:08:02] it's after the point we chose for the put.
+[1:08:09] All right,
+[1:08:10] now, but the first get we just said,
+[1:08:12] could return either 0 or 1.
+[1:08:14] If the first get returns 0,
+[1:08:17] then the put must have happened after the point at which the get
+[1:08:21] occurs. So we choose some point for the
+[1:08:23] get,
+[1:08:24] we haven't committed to where the put happens yet we just know
+[1:08:26] that it happens after that and since we haven't yet committed
+[1:08:32] to when the put happens we just know that it's after that line
+[1:08:35] somewhere the second get can return either 0 or
+[1:08:41] 1 because it's just like the first example that we saw
+[1:08:44] both the put and the get are still to be determined about
+[1:08:50] when they actually occur and so we can pick either one And it
+[1:08:55] depends on the relative order of the put and the second get.
+[1:09:04] So the bottom line is once either a concurrent get returns
+[1:09:10] a new value or a put completes,
+[1:09:15] then subsequent reads must give you the new value in the case in
+[1:09:20] which only one put occurs.
+[1:09:24] If there are more than one puts,
+[1:09:26] then a subsequent read must get the new value from this put, or
+[1:09:30] if there are later puts that happen,
+[1:09:33] it could return a later value.
+[1:09:35] But it can't return an earlier one.
+[1:09:39] So the basic idea is that the writes form a total order
+[1:09:45] and we can imagine that total order as the timeline of the
+[1:09:48] evolution of the key.
+[1:09:50] Every time we read a value, that sets the minimum time at that
+[1:09:55] point.
+[1:09:56] We can never go backward in time.
+[1:09:58] So once I've revealed to you the sixth value in the sequence, I
+[1:10:02] can never answer with the fifth value or an earlier value.
+[1:10:05] I have to either answer with the sixth value or a later one.
+[1:10:10] If I read a later one, that forces time to move forward
+[1:10:13] again.
+[1:10:15] Likewise,
+[1:10:16] finishing a put is equivalent to reading the value.
+[1:10:20] So if I finish the PUT, that also forces time to go forward.
+[1:10:26] Okay.
+[1:10:28] That seems so far so good. Questions?
+[1:10:34] Yes.
+[1:10:35] PUTs and GETs,
+[1:10:38] the server does them all atomically?
+[1:10:42] Doesn't have to.
+[1:10:43] Okay, so it could be done automatically.
+[1:10:45] I mean, well, the PUTs appends are the ones that don't
+[1:10:48] necessarily have to work that way.
+[1:10:51] However,
+[1:10:54] they can overlap. They have to appear as though
+[1:10:56] they occurred in total order.
+[1:10:58] You don't have to implement them atomically.
+[1:11:02] You can implement them concurrently.
+[1:11:04] They just have to appear as if they occurred in a total order.
+[1:11:08] And in fact,
+[1:11:09] you can't implement them atomically because failures
+[1:11:12] occur.
+[1:11:15] All right, so that means when a PUT completes,
+[1:11:19] that advances us along the timeline.
+[1:11:21] What do we mean by the PUT completes?
+[1:11:27] Well, let's talk about what our choices are.
+[1:11:30] What's the earliest point at which a PUT could have happened?
+[1:11:35] What was the earliest point at which we could say a PUT
+[1:11:38] completed?
+[1:11:40] And the earliest point is the moment that the right becomes
+[1:11:44] safe.
+[1:11:46] Safe means survives failure.
+[1:11:51] Now the specifics of what survives failure means can
+[1:11:54] depend on exactly how we're building our system.
+[1:11:58] In some cases it just means it needs to be in the memory of two
+[1:12:00] things, in some cases it means it needs to be in the memory of
+[1:12:03] a majority of things,
+[1:12:05] in some cases it needs to be on disk somewhere,
+[1:12:08] in some cases it will mean it needs to be on disk in a
+[1:12:11] majority of places.
+[1:12:13] Depends on what we're building,
+[1:12:15] right?
+[1:12:16] So safe depends on the specific failure model.
+[1:12:18] However,
+[1:12:19] in the case of a single server,
+[1:12:21] under the 491 failure model, which remember failures are
+[1:12:25] unbounded but finite,
+[1:12:27] we lose in-memory data but retain any memory stored
+[1:12:31] persistently,
+[1:12:33] safe means that the update is stored on the server's
+[1:12:36] persistent storage.
+[1:12:38] So there's some point we issue a disk write or a flash write or
+[1:12:42] some other write to persistent storage at some point between
+[1:12:45] issuing the write and getting the response,
+[1:12:47] the data is actually on the storage in a way that if the
+[1:12:50] machine fails it'll still be there when it comes back.
+[1:12:54] So at that point, the point at which the data becomes safe
+[1:12:58] is the earliest we can say the put completes.
+[1:13:00] Because if we say the put completed before then,
+[1:13:03] If the machine fails between that moment and the moment the
+[1:13:07] data is safe,
+[1:13:07] we lose the update.
+[1:13:11] So that's not good.
+[1:13:15] So if you observe a put before it's safe,
+[1:13:17] then it could be undone by a failure and that's not allowed.
+[1:13:22] And remember, observers could also be concurrent readers, not
+[1:13:24] just the writer.
+[1:13:26] Like if it fails before it's safe, the writer won't believe
+[1:13:28] it's done, but a concurrent reader might have.
+[1:13:30] So we have to prevent concurrent readers from believing the right
+[1:13:34] has happened before the right is safe.
+[1:13:40] Okay,
+[1:13:40] that's the earliest we could choose.
+[1:13:42] What's the latest we could choose?
+[1:13:46] The latest we could choose is the moment that it's observed by
+[1:13:49] any other node.
+[1:13:52] Now there are two ways for that observation to happen.
+[1:13:55] The client that issues the put receives the response or some
+[1:13:59] other client that issues a GET receives a response with that
+[1:14:02] PUT value.
+[1:14:05] As soon as one of those two things happens,
+[1:14:08] one of those two observers receives the message that
+[1:14:10] externalizes the fact that the PUT occurred
+[1:14:14] or communicates the fact that the PUT occurred,
+[1:14:17] that's the latest point at which we can say it occurred.
+[1:14:22] How can the server know when that occurs? In fact,
+[1:14:27] how can the server even know if it occurs?
+[1:14:31] Isn't it never guaranteed,
+[1:14:33] because you don't,
+[1:14:34] even if the client receives a response and the client were to
+[1:14:37] send like an acknowledgement,
+[1:14:39] that acknowledgement could still be lost.
+[1:14:40] Yeah,
+[1:14:41] so,
+[1:14:41] exactly right,
+[1:14:43] it can't.
+[1:14:46] And in fact, even if you were gonna send me an
+[1:14:48] acknowledgement,
+[1:14:48] it's time.
+[1:14:49] I won't receive the acknowledgement at the point you
+[1:14:52] received the response,
+[1:14:53] I will just know that it's later.
+[1:14:56] So I can't choose that time because that's already after the
+[1:14:58] time you've known.
+[1:14:59] I can't use your clock because NBC and the Big Ten can't agree
+[1:15:03] on what a second is.
+[1:15:06] Right?
+[1:15:07] So there's just no way to do that.
+[1:15:12] That's because messages can be arbitrarily delayed.
+[1:15:15] The server cannot know how long it takes to arrive.
+[1:15:18] It could be a very, very, very,
+[1:15:20] very,
+[1:15:20] it could be epsilon time, measurable but epsilon,
+[1:15:23] which is small.
+[1:15:25] It could be very, very large but finite.
+[1:15:31] Messages can also be dropped.
+[1:15:33] The server won't know a response has dropped until and unless
+[1:15:36] it's told by the receiver that it got the message that tells it
+[1:15:39] it wasn't dropped
+[1:15:41] and that message might also be dropped.
+[1:15:43] So there's just no way.
+[1:15:44] You can't do it.
+[1:15:47] So what that means is servers treat responses conservatively.
+[1:15:52] If a response can make an update observable,
+[1:15:56] we say it externalizes that update and the server assumes
+[1:16:00] that any such response,
+[1:16:02] the first such response that externalizes the update can
+[1:16:06] successfully be delivered and will be delivered with
+[1:16:09] negligible delay.
+[1:16:11] There has to be some delay,
+[1:16:12] but it's smaller than,
+[1:16:14] like,
+[1:16:14] whatever number we put on it, we can cut it in half.
+[1:16:19] That could be the number. Well, that number could be cut
+[1:16:20] in half. Well, that could be the number.
+[1:16:22] That number could be cut in half.
+[1:16:23] This is one of those physics paradoxes.
+[1:16:25] If you keep getting halfway to the wall, you'll never actually
+[1:16:27] touch it.
+[1:16:28] But there's always,
+[1:16:29] we could always get closer.
+[1:16:33] So,
+[1:16:33] if we assume that it's seen at the point we send it,
+[1:16:38] well, that's going to be earlier than absolutely necessary.
+[1:16:42] But it can't be late.
+[1:16:45] Because the message takes measurable time, Now,
+[1:16:48] the receiver will not receive the message until sometime after
+[1:16:53] we send it.
+[1:16:54] How long?
+[1:16:55] Don't know.
+[1:16:56] Could be half that much.
+[1:16:58] But it's not zero,
+[1:16:59] just could be half.
+[1:17:01] So if we assume it was zero,
+[1:17:03] then we can't be late.
+[1:17:06] And so this is probably going to be the last bit that I get to
+[1:17:09] for today, but this is what this looks like.
+[1:17:10] So we have a client,
+[1:17:12] and then this is the server.
+[1:17:13] The server has both memory and disk.
+[1:17:16] The client sends the put to the server that puts right out of
+[1:17:20] the network into memory.
+[1:17:22] There's a little bit of processing that happens on that
+[1:17:24] thing.
+[1:17:25] Then we send it to the disk with a disk write.
+[1:17:28] That's blocking I.O.
+[1:17:30] because we want to make sure the write actually makes it to disk.
+[1:17:33] If we're not waiting for the write to actually make it to
+[1:17:35] disk, we don't know that it's safe.
+[1:17:37] At some point the disk does its thing.
+[1:17:40] The disk controller gets the thing and sends it to the
+[1:17:42] platter. The magnetic field on the
+[1:17:45] platter flips bits.
+[1:17:47] Eventually, the data is on the disk reliably.
+[1:17:50] At some point in that process,
+[1:17:53] the data is safe.
+[1:17:56] At some point after the data is safe,
+[1:17:58] we get the response to the disk right,
+[1:18:00] and that's the point at which the server knows that it's safe.
+[1:18:05] Before the server knows that it's safe,
+[1:18:08] if it's serving a concurrent read, it has to give you the old
+[1:18:11] value.
+[1:18:13] So it has to give you the old value until the disk write
+[1:18:16] returns.
+[1:18:17] Because until the disk write returns, I don't know that it's
+[1:18:20] safe.
+[1:18:22] Then there's some more processing.
+[1:18:24] Then I'm going to send the result to the requester.
+[1:18:27] Once I issue the send message,
+[1:18:31] from that point forward,
+[1:18:32] any concurrent read must return the new value.
+[1:18:37] What about between those two?
+[1:18:41] I can do either one,
+[1:18:44] and when we come back we'll reason about why that's true.
+[1:18:46] Actually let me see what I'm doing.
+[1:18:48] Oh I actually have just enough time to do this.
+[1:18:52] So the old value is possible because just like before we were
+[1:18:56] talking about reads and writes overlapping,
+[1:18:59] we could choose a later point in the interim for the write
+[1:19:02] because we haven't externalized it yet.
+[1:19:06] So we could return the old value by deciding that the right
+[1:19:09] happened later.
+[1:19:10] The new value is also possible because we could choose a time
+[1:19:14] as early as the disk right returning to be the point.
+[1:19:18] If that's the point we choose, we return the new value.
+[1:19:22] No problem.
+[1:19:24] So in this interim,
+[1:19:26] we could choose.
+[1:19:28] We can't choose before here. We can't choose after here.
+[1:19:31] We can choose anywhere in the middle.
+[1:19:32] And when we come back, we'll see the consequences of that.
