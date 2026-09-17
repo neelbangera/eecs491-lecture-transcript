@@ -1,0 +1,1589 @@
+[00:01] All right,
+[00:03] welcome to Career Fair,
+[00:05] that's why no one's here.
+[00:11] What have we been talking about so far?
+[00:13] So far,
+[00:16] the first thing that sort of,
+[00:18] part of this class, the point of this class is to disabuse you of
+[00:21] some notions you have about how this works, right?
+[00:25] Like you have a model for how computation works, how
+[00:27] communication works, and how systems work together and that
+[00:30] model is for most of you probably a little too simplistic
+[00:36] and and part of what this class is about is sort of convincing
+[00:40] you to rethink the way you think about computation and the first
+[00:45] lesson of that in the class is that the order of execution how
+[00:49] programs work is just not what we think when we think about it
+[00:53] in terms of 280 or 281
+[00:56] because the compiler and the language runtime collectively
+[01:01] are allowed to reorder the operation of things and to defer
+[01:05] some operations provided that sequential code can't tell
+[01:09] you've done it.
+[01:11] So as long as sequential code can't tell, for example,
+[01:14] you reorder some lines of code or you defer writing some things
+[01:18] back to memory or you do some other sort of clever things,
+[01:21] then the compiler and the runtime can do that to make your
+[01:26] program run faster in a way that your code can't tell that
+[01:30] anything has happened.
+[01:33] Unfortunately, concurrent code can tell that these things
+[01:36] happen.
+[01:37] It's not guaranteed to be able to tell.
+[01:39] Like, if you're running this under a debugger, you can
+[01:40] actually step through it and watch how the things are
+[01:43] different.
+[01:45] But if you're running concurrent code, Concurrent code does have
+[01:48] insight into how this reordering and deferment happens because
+[01:53] the compiler and the language runtime have no idea how two
+[01:58] different concurrent streams of execution will interact with one
+[02:01] another.
+[02:02] So it can't sort of predict or defend against one piece of code
+[02:07] seeing out of order events in another piece of code.
+[02:12] And without some guarantees between these two concurrent
+[02:16] streams of execution,
+[02:18] you cannot communicate between them.
+[02:20] There's just no way to do it.
+[02:22] And so what that means is if we have two concurrent routines,
+[02:26] foo and bar,
+[02:27] each of them sees a subset of the other's work and that subset
+[02:31] is not even guaranteed to be a strict prefix of the work.
+[02:34] It could be any subset of the work.
+[02:37] So you'll often see,
+[02:39] we don't see this too much in 491 because you're not allowed
+[02:42] to do it.
+[02:43] But we'll often see in 482 someone spinning on a Boolean to
+[02:47] see whether something else is changed somewhere.
+[02:49] And it turns out in 482's memory model that works, but in general
+[02:53] it doesn't.
+[02:57] So synchronization is the general term
+[03:01] for the set of tools to solve this problem.
+[03:03] And in general,
+[03:05] we say that an event F in foo is synchronized with event B in bar
+[03:10] if
+[03:13] that's true,
+[03:14] then it's guaranteed that all actions in foo that happen
+[03:17] before F are guaranteed to be visible to all actions in bar
+[03:21] that happen after B.
+[03:23] Now the things that happen after F we have no guarantees about.
+[03:26] So B might see things after F in any order,
+[03:31] in any subset, but it's guaranteed to see everything
+[03:34] that happened before F for sure.
+[03:38] Now this notion of happens before is going to come up
+[03:42] repeatedly.
+[03:43] So one of the games we're
+[03:48] playing in distributed systems is that inherently our system is
+[03:54] a partial order of events.
+[03:56] Because there are different machines running in different
+[03:58] places that don't share clocks and don't share memory and don't
+[04:01] share state.
+[04:02] So the relative rates of execution of those machines are
+[04:04] completely unknown.
+[04:06] So the order in which those things interleave are completely
+[04:08] unknown.
+[04:11] But we want some events in this machine to be ordered before
+[04:14] some events in this machine.
+[04:16] And that's going to be constrained by something called
+[04:18] the happens before relationship.
+[04:22] The any ordered events in a distributed system have some
+[04:26] guarantee that some events happen before some other events
+[04:30] and there are different,
+[04:31] there are basically two ways to do that.
+[04:34] One is to have an event happen,
+[04:37] then send a message about that event to some other machine,
+[04:40] have the receive happen.
+[04:42] We know that things that happen after the receive happened after
+[04:45] the events before the send.
+[04:49] It turns out that if you knew what time it was,
+[04:54] which you don't,
+[04:55] if you knew what time it was, you could also make this order.
+[04:59] We never know what time it is. That's just sort of one of the
+[05:02] realities of life. In fact, right now
+[05:06] this clock is at least two minutes off of that clock and
+[05:10] these clocks are off by about 15 seconds.
+[05:13] So they're just not reliable.
+[05:16] However,
+[05:18] if we knew what time it wasn't,
+[05:21] that will turn out to be a reliable way of ordering things.
+[05:24] We're not going to see that until the end of the semester,
+[05:27] but sort of keep that in your back pocket.
+[05:29] You will never know what time it is,
+[05:31] but if you know what time it's not, that does give you some
+[05:34] opportunities.
+[05:38] So the the mechanism we've seen so far within a single
+[05:42] concurrent program to provide these happens before guarantees
+[05:46] are the channel.
+[05:48] So the channel is a mechanism for synchronization.
+[05:51] A sending go routine passes a value along the channel to some
+[05:54] receiving go routine
+[05:56] with timing visibility guarantees.
+[05:59] Channels typically have a capacity of zero, which means
+[06:02] the timing guarantee is strict. When one go routine sends a
+[06:07] value across the channel, the receiving Go routine receives it
+[06:11] at the same time that the sending Go routine sends it.
+[06:14] Those are contemporaneous.
+[06:17] Now, zero-capacity channels also require some careful design.
+[06:21] We'll sort of see this as things unfold.
+[06:24] And preferably,
+[06:25] channels encode the communication and the
+[06:29] collaboration structure within your program.
+[06:32] So, channels should convey meaning, and the structure of
+[06:35] the channels tells you something about how the program works,
+[06:39] and so being very intentional about their usage is very
+[06:42] helpful.
+[06:43] We haven't really talked much in our curriculum
+[06:47] about being intentional about naming and structure.
+[06:52] But it actually turns out to be really, really important
+[06:55] not only for if you're collaborating with other people,
+[06:59] writing clear code makes it easier for other people to use
+[07:02] your code. I challenge you to go back and
+[07:05] look at your 281 projects and see if you can understand them.
+[07:09] The more you can understand them, the clearer those trier
+[07:14] solutions probably are.
+[07:16] And it turns out we'll often look at, as practicing
+[07:19] programmers, we'll often look at stuff,
+[07:21] like I'm revising,
+[07:22] I'm changing some things in project one before I put it out
+[07:25] today.
+[07:25] And I'm looking at it now, and I don't actually remember the
+[07:28] context I had in my head when I first wrote it.
+[07:30] which was only like two weeks ago,
+[07:33] right?
+[07:34] So future you will be very grateful to current you if
+[07:38] you're really intentional and clear about how you're writing
+[07:40] your code.
+[07:42] So we ended with this version of counting.
+[07:47] So remember the idea was we had this main function.
+[07:51] We wanted to spawn off four different concurrent counters.
+[07:55] Each of those counters is gonna count
+[07:57] some shared value up to some limit.
+[08:01] We're currently doing this, the current solution to this is that
+[08:05] we're passing between the counters both some state that
+[08:09] has the current value that we're counting in val,
+[08:12] the number of counters that remain alive in counters so that
+[08:15] they know how to pass the value back and forth.
+[08:19] So main creates an instance of one of these paired values and
+[08:23] then a channel to pass them around between people.
+[08:25] it launches four counters,
+[08:28] passing that channel along, giving each one of them a unique
+[08:30] name,
+[08:31] and then it sends the value to the channel, hoping that those
+[08:34] four counters will do their thing.
+[08:36] Sleep for a second,
+[08:38] hopefully that'll be long enough.
+[08:40] Then when we're done, hopefully all the counters are done, we'll
+[08:42] pull the value off,
+[08:43] and we'll say we're done, here's the final value.
+[08:47] The way each of those counters is built,
+[08:50] it takes the channel and its label as an argument, it, it
+[08:54] pulls one of these pairs off the channel,
+[08:58] it starts incrementing them. If there are other counters
+[09:02] still alive, it lets those other counters have a chance
+[09:05] by pushing the value into the synchronous channel.
+[09:09] Some other counter pulls it out, does its thing, puts it back,
+[09:12] eventually we'll get our turn again.
+[09:15] Then when we're done counting our million, we'll print the
+[09:18] final value of the val,
+[09:20] We'll decrement the number of counters alive because we're no
+[09:23] longer going to be working
+[09:25] and we'll pass this counter along.
+[09:32] Now the part that we left with and the conversation that we
+[09:36] left is what about time sleep, right? If that sleep, if that
+[09:41] second is not long enough,
+[09:43] it turns out you've set it to half a second on my desktop
+[09:46] machine upstairs,
+[09:48] you only get to about not even halfway,
+[09:53] I think.
+[09:53] Maybe it was, I can't remember what the number is, but you
+[09:55] don't finish.
+[09:58] So the channel,
+[10:00] the problem is, is that the channel is currently playing two
+[10:03] different roles. It's conveying values between
+[10:05] the counters and not only conveying the final value to
+[10:11] but hopefully it would also be telling main that the channels
+[10:14] are done right and you could do this by having main also just
+[10:18] pull these pairs off check the number of counters if there are
+[10:21] still counters left stuff it back but that's kind of silly
+[10:25] because then main is just doing a lot of work for no good reason
+[10:27] and you're doing a bunch of extra passes around so the
+[10:32] problem is and we're gonna see this specific problem over and
+[10:36] over again in 492,
+[10:38] the problem is that our solution so far is using a single
+[10:41] abstraction,
+[10:42] the channel of pairs,
+[10:45] to meet two purposes.
+[10:50] Typically whenever we find ourselves doing that, that's a
+[10:54] clarity error.
+[10:56] We'd prefer to separate abstractions that both
+[10:59] simplifies the ability to provide correct programs.
+[11:02] It also provides clarity to the reader.
+[11:05] Question?
+[11:07] If channels kind of guarantee synchronization and go,
+[11:12] why do we still pass by a value today if we're counting
+[11:17] at a time, can we not use a pointer?
+[11:21] So you can't, so if we're passing these things around, you
+[11:24] can use a pointer.
+[11:26] The reason I prefer not to is remember the goal of sort of
+[11:32] our 492,
+[11:34] 491.
+[11:36] What class is this?
+[11:37] 491.
+[11:39] So I'm just gonna warn you up front.
+[11:41] I have a lot of city miles.
+[11:44] If you know the difference between city miles and highway
+[11:45] miles, city miles are harder on the car.
+[11:47] There are a lot of city miles running on this and so I
+[11:50] actually had this this conversation just earlier today.
+[11:54] Part Part of the point of the synchronization idioms we're
+[11:57] pursuing in 491 is to never share memory.
+[12:02] Because if we don't share memory,
+[12:05] then we eliminate a whole class of potential errors.
+[12:09] And I'm really good at writing bad code,
+[12:12] which most of us are.
+[12:14] So if you make some errors impossible,
+[12:17] and it turns out debugging errors with shared memory, if
+[12:21] you've had the experience of doing that before, is a
+[12:24] nightmare,
+[12:25] it's really painful.
+[12:28] I am pain avoidant, so that's part of the other thing.
+[12:31] So yes, you can pass pointers around.
+[12:34] And if the thing you're passing around is huge,
+[12:36] maybe you want to,
+[12:38] an integer is a pointer.
+[12:40] They're exactly the same size.
+[12:42] So you save absolutely nothing passing the pointer around and
+[12:44] all you do is buy pain,
+[12:46] which I don't like doing.
+[12:50] And in fact,
+[12:51] I will actually argue that you should never pass them around by
+[12:55] pointer until and unless you discover it's important.
+[12:59] Right?
+[12:59] Because,
+[13:00] again,
+[13:00] most of the time, we're writing this in the context of blocking
+[13:03] IO.
+[13:04] Since there's blocking IO,
+[13:06] you're not really saving much latency by passing things around
+[13:10] by pointer versus by value,
+[13:12] because you're already blocking for stuff or sending things
+[13:15] across a network that's hundreds of milliseconds anyway.
+[13:18] If you add an extra millisecond to that, who the hell cares? Now
+[13:22] you might care for throughput,
+[13:24] but that's not the concern at the moment.
+[13:28] Question?
+[13:33] So the channel provides both a timing guarantee and a
+[13:36] visibility guarantee,
+[13:37] right?
+[13:38] But here were the two purposes for this channel is we're using
+[13:43] the same mechanism to pass the value between the counters and
+[13:47] to obtain the final value.
+[13:50] And it would be nice if we could have different mechanisms to
+[13:54] obtain the final value.
+[13:58] So the one way to solve this,
+[14:00] and it turns out this is not going to be the ultimate
+[14:03] solution to this problem,
+[14:05] is we're going to develop this over the course of the semester,
+[14:08] over the course of today's lecture,
+[14:10] and this is probably going to bleed into Wednesday.
+[14:13] But we'd like two different abstractions.
+[14:15] we'd like to have one channel that's the thing that passes the
+[14:19] value between the counters and another channel to pass the
+[14:22] final value back to me and if we could do that then main could
+[14:26] just wait on its own dedicated channel and it doesn't have to
+[14:30] predict how long it's going to take and it doesn't have to
+[14:34] participate in the counter channel and just add stupid work
+[14:38] so when is the value final well the values final when we are the
+[14:43] last counter and our work is done and it turns out the
+[14:46] structure of pairs we're passing around allows us to know this
+[14:50] directly.
+[14:53] So this is,
+[14:55] this would have been the end of the last lecture, I didn't get
+[14:57] to it. This is the solution to that
+[14:59] problem using two channels.
+[15:03] So we're going to have a second channel and for this we don't
+[15:07] need to pass around the number of counters, we only need to
+[15:09] pass around,
+[15:10] pass the integer because because by the time we're using this we
+[15:13] know there are no counters.
+[15:15] So there's no reason to pass the number of counters.
+[15:17] So now we're passing two things to the count in addition to its
+[15:21] name,
+[15:22] the channel for passing values around between counters and
+[15:28] the channel to pass back to main when we're done.
+[15:31] Then once I spawned those go routines,
+[15:34] I'd stuff the pair into the channel,
+[15:36] the counter channel just like I did before, and then I just say,
+[15:39] well, just tell me when you're done.
+[15:41] I'll wait.
+[15:43] So this blocks until somebody sends a message on D.
+[15:50] This is what the counters look like.
+[15:51] The counters are a little more complicated, but not that much
+[15:53] more.
+[15:54] The only difference in this counter between this version and
+[15:57] the one we had last time, we have this extra argument D, and
+[16:02] at the end when we decrement the number of counters we have to
+[16:05] decide,
+[16:06] are we the last counter or not?
+[16:08] If we are not the last counter, in other words, there are still
+[16:12] counters left after we subtracted ourselves to them,
+[16:15] pass this around to whatever those counters are,
+[16:17] there's one or more of them.
+[16:19] If we are the last counter, then we can just send the value to
+[16:22] the done channel.
+[16:25] And if we do this,
+[16:27] it both executes correctly and in the minimum amount of time it
+[16:32] would take. So, before we either needed to
+[16:34] delay main long enough to guarantee this would be done,
+[16:37] which meant main was sitting around doing nothing while
+[16:40] everybody else was done.
+[16:42] Or it was too short, in which case we got the wrong answer.
+[16:45] And we could never guarantee what long enough meant.
+[16:49] So here we can guarantee what long enough means because we're
+[16:53] waiting on a dedicated channel that's used only to communicate
+[16:56] the fact that the value is done. All right,
+[17:01] today,
+[17:06] so,
+[17:07] so far,
+[17:09] and this gets back to your question about why we're passing
+[17:11] by value rather than by pointer.
+[17:14] So far,
+[17:15] we've avoided any shared mutable state.
+[17:22] Because we have no shared mutable state,
+[17:25] we never need to worry about the fact that we see subsets of
+[17:30] operations when we're looking across go routines without some
+[17:34] intervening synchronization.
+[17:36] There's just no way to look at one counter's result without
+[17:40] reading it off the channel
+[17:42] because I don't have a pointer to the stuff that you're
+[17:44] counting.
+[17:45] You don't have a pointer to the stuff that I'm counting.
+[17:47] of my version of the value that I'm counting,
+[17:51] the physical representation of that in the machine is different
+[17:55] from the physical representation of the value in your go routine
+[17:59] in the machine.
+[18:00] So I can't touch yours and you can't touch mine and that's
+[18:04] great.
+[18:05] So avoiding shared mutable state avoids a very large class of
+[18:10] potential bugs.
+[18:12] And it may not be immediately clear why that is, if and when
+[18:16] you take 482, you will know the answer to that.
+[18:19] Because in 482, the concurrency model is shared mutable state.
+[18:25] But we still have to reason about ownership.
+[18:30] So in this model, we still have to reason about who owns the
+[18:34] value.
+[18:35] You're not allowed to touch the value after you no longer own it
+[18:38] again, because if you do,
+[18:40] that's not quote, the value.
+[18:45] So, reasoning about ownership can still be wrong, and you can
+[18:49] still end up creating bugs.
+[18:53] So today we're going to introduce a new idiom called
+[18:55] lexical confinement.
+[18:57] The basic idea behind lexical confinement is instead of having
+[19:01] some working Go routines that pass data between them,
+[19:05] we're going to have the data that we're working on owned by a
+[19:10] single Go routine that lives forever.
+[19:13] and you just pass functions to that go routine to execute on
+[19:18] behalf of the other go routines that want work done so all of
+[19:23] the work and all of the data the data is completely confined
+[19:28] within one go routine that does all of the work on behalf of
+[19:31] anyone else and and therefore that go routine is the only
+[19:36] person who can name it and if you're the only person you can
+[19:40] name it You're the only owner.
+[19:42] No one can ever even name it.
+[19:47] So,
+[19:48] and it turns out there are two ways to do this.
+[19:49] You can treat them as if they were a server with a remote
+[19:54] procedure call and invoke remote procedures and have the
+[19:57] procedures defined in the server,
+[19:59] which is kind of what we're doing for RPC.
+[20:02] Or you can actually have the server just be able to execute
+[20:07] any generic function over its state.
+[20:09] with any generic value,
+[20:11] and then have people pass functions because there is
+[20:15] actually shared state and you can pass functions back and
+[20:17] forth.
+[20:18] But the functions are well known.
+[20:24] All right,
+[20:25] I will warn you up front,
+[20:28] this is a little weird,
+[20:31] if you have never gotten into the habit of passing functions
+[20:35] as arguments,
+[20:36] or using function objects in C++,
+[20:39] right? We talk about functors at the end of 280,
+[20:42] like briefly,
+[20:43] I think we spend a minute on it,
+[20:45] we never really ask you to build it,
+[20:47] so you may never really use them in anger,
+[20:50] right? So if you've never done that before, this will feel a
+[20:52] little bit bizarre.
+[20:55] But it saves you effort,
+[20:58] and there's a little bit more effort up front,
+[21:00] but it saves you the possibility of making horrid errors later.
+[21:04] question
+[21:05] so
+[21:14] you've used mutexes before right have you
+[21:20] ever done them incorrectly yeah so you've done it wrong how much
+[21:26] fun is that
+[21:27] yeah not fun
+[21:33] I mean, it's not quite beating your head with a brick,
+[21:36] but it's not a lot better than that.
+[21:39] No,
+[21:40] but I just mean,
+[21:41] that example,
+[21:43] the color example is similar to using text.
+[21:47] So, it's similar to write the code correctly
+[21:52] if you write it correctly the very first time all the time.
+[21:57] If you're the person who writes code correctly the first time
+[22:00] all the time,
+[22:02] You don't need to take this stuff.
+[22:04] I am not that person,
+[22:07] right?
+[22:08] So,
+[22:13] let's come back to why we're,
+[22:16] why are we studying computer science,
+[22:18] right?
+[22:19] Now, and I'm gonna admit this is a manifesto and a position
+[22:25] and a flag in the ground,
+[22:27] not necessarily,
+[22:28] and it's not something that all of my colleagues agree with me
+[22:31] on, frankly.
+[22:32] In fact,
+[22:33] I'm pretty sure if you surveyed
+[22:36] the systems faculty,
+[22:38] so,
+[22:39] Manos,
+[22:40] P,
+[22:41] Harsha,
+[22:42] all of them,
+[22:43] they'd all say,
+[22:44] oh,
+[22:44] Noble's nuts.
+[22:46] Like, I never write code that way, I just use mutexes.
+[22:49] They may be way better than me, in fact, they probably are,
+[22:52] right?
+[22:55] But the point of a computer science curriculum is not only
+[22:57] to train ourselves to write the code correctly the first time,
+[23:01] it's also to learn a set of tools and techniques that
+[23:04] account for the fact that we're just not very good at that,
+[23:07] right? So the idiom that we're showing here in data passing,
+[23:12] so, so far I've shown you the data passing idiom.
+[23:14] So there's the shared memory idiom.
+[23:17] Then there's the data passing idiom.
+[23:19] And I'm about to share you the function passing idiom.
+[23:22] Those go from,
+[23:25] I don't want to say simple,
+[23:27] because it's not really.
+[23:30] But the amount of scaffolding you build for each of those gets
+[23:34] a little bit bigger as you go from this side to this side.
+[23:38] But the set of errors you can make gets much smaller as you go
+[23:43] from this side to this side.
+[23:46] And it's going to cost you something.
+[23:47] It's going to cost you a little bit of programming time up
+[23:50] front.
+[23:51] But once you get good at the idiom, and that just becomes in
+[23:53] the noise.
+[23:54] It just sort of falls out.
+[23:56] And in fact,
+[23:57] if you're using Go Land, it'll actually template it out for you
+[24:01] pretty straightforwardly.
+[24:03] Yeah,
+[24:04] but this is important because most of you will resist this if
+[24:08] you know how to use a mutex.
+[24:14] It's gonna cost you a little bit of extra templating and it's
+[24:17] gonna cost you a little bit of performance.
+[24:18] We'll talk about that. But in exchange,
+[24:22] you are writing code with lower technical debt.
+[24:26] You're writing code with less chances of being wrong and less
+[24:30] ways of making it wrong later.
+[24:34] All right, so this gets back to one of the first conversations I
+[24:38] had within the first year,
+[24:40] maybe 18 months, for every new PhD student I ever hire.
+[24:45] They eventually come to me with the following question.
+[24:49] I'm running out of disk space.
+[24:51] Is it okay if I buy another disk?
+[24:55] Now, disk prices have shot through the roof in the last six
+[24:57] months, so I don't think, I think this is still true, but
+[25:00] basically, my answer to them is,
+[25:02] you have wasted more money getting up from your desk,
+[25:07] walking to me,
+[25:08] interrupting me, and asking me this question,
+[25:11] and having me say yes,
+[25:13] than it would have to just buy the damn disk.
+[25:16] From now on anything that costs less than a thousand dollars,
+[25:20] do not ask me ever,
+[25:22] just buy it.
+[25:25] Why?
+[25:26] A fully loaded PhD student costs about a hundred and twenty
+[25:31] thousand dollars a year.
+[25:34] And they're not as expensive as real employees.
+[25:38] Real employees are at least double that.
+[25:42] A cool quarter million every year for an entry-level
+[25:45] employee,
+[25:46] period.
+[25:48] Your time has extraordinary
+[25:53] value,
+[25:54] not just to you because it's your time, but economically your
+[25:58] time has value.
+[26:02] Do not waste it.
+[26:05] Waste a computer.
+[26:06] When and if you discover that the computer's time is the thing
+[26:10] that is starting to cost real money,
+[26:12] then we can talk,
+[26:15] but we're probably not there.
+[26:17] Most of the things you do,
+[26:19] most of the time,
+[26:20] are not going to be things that cost real money
+[26:24] when they execute.
+[26:25] They're just not.
+[26:27] Now again, if you're writing an inner loop of the search engine
+[26:30] for Google or Bing or Coggy or whatever,
+[26:33] yes,
+[26:34] you are spending real money and shaving nanoseconds off of that
+[26:38] computation saves data centers worth of compute.
+[26:42] Great,
+[26:44] totally cool.
+[26:47] You're probably not doing something like that.
+[26:51] All right, so that's the first thing.
+[26:52] And you're gonna resist this,
+[26:54] that's okay.
+[26:56] You don't have to do it this way, but then you just don't get
+[26:58] much credit for the projects.
+[27:00] 601,
+[27:01] right?
+[27:02] The other thing I'm gonna mention,
+[27:04] what we're talking about today,
+[27:06] it's probably gonna bleed into Wednesday,
+[27:08] and what we talk about Wednesday, which might even
+[27:09] bleed a little bit into Monday, These two things are kind of two
+[27:13] of the big things in the class.
+[27:15] So,
+[27:16] like,
+[27:16] keep yourself engaged a little bit as we do this.
+[27:20] And in fact, the topic on Wednesday when we talk about
+[27:22] linearizability is usually intellectually one of the
+[27:25] hardest things in the class for people to wrap their head
+[27:27] around.
+[27:29] Other questions?
+[27:33] Is this in alignment,
+[27:35] like, since we're restricting the ownership to one good
+[27:37] routine, does that limit our concurrency?
+[27:40] So does it limit our,
+[27:42] so for restricting ownership to one-go routine, does it limit
+[27:45] our concurrency?
+[27:47] In practice,
+[27:48] no.
+[27:50] Because the operations we're performing on that data would
+[27:53] have been things that had to be mutually exclusive in the first
+[27:55] place,
+[27:57] right? Because we're working on data that's shared between more
+[28:00] than one-go routine.
+[28:01] So since that has to be mutually exclusive anyway,
+[28:04] having it all done by one-go routine doesn't really cost you
+[28:08] concurrent,
+[28:08] cost you parallel opportunities. It's all of the other stuff that
+[28:12] happens that we wanna have be parallel.
+[28:18] All right.
+[28:23] So, let me make some quick, I'm gonna blow through this stuff
+[28:26] pretty quickly because I'm behind.
+[28:29] But in all of the channel variants we've seen so far,
+[28:31] there's just no shared mutable state.
+[28:34] The integer is passed by value between go routines all the
+[28:37] time.
+[28:38] Now there's also its trade-off. The coarse-grained sharing
+[28:40] interleaves less work when we just hand the value to a counter
+[28:42] and it does all of its stuff, which is equivalent to acquiring
+[28:45] the mutex at the beginning of the counter and doing it all.
+[28:51] It's faster to do coarse-grained sharing.
+[28:53] How much faster?
+[28:56] On my desktop upstairs, if I run the version that just grabs the
+[29:00] value, It counts to a million, passes it along,
+[29:04] takes about 1 one hundredth of a second.
+[29:07] If I run the fine-grained version where I'm passing it
+[29:09] between every iteration,
+[29:11] it takes about 0.6 seconds,
+[29:13] which is quite a bit larger.
+[29:16] However,
+[29:18] one of my core beliefs is we should avoid premature
+[29:20] optimization.
+[29:22] The fine-grained version, there's about 4 million channel
+[29:25] handoffs if you're working out.
+[29:29] Total cost is about 6 seconds. it's about a hundred and fifty
+[29:31] nanoseconds per handoff.
+[29:35] That's on a commodity machine,
+[29:37] just,
+[29:37] I bought it off the internet.
+[29:41] Now,
+[29:42] okay,
+[29:43] is a hundred and fifty nanoseconds a lot?
+[29:45] Again, these numbers are out of date, so they're probably a
+[29:47] little bit wrong,
+[29:48] but even in a current machine, it's going to cost you several
+[29:52] multiples of a hundred and fifty nanoseconds to compress one
+[29:56] thousand, one kilobytes.
+[29:58] So it just doesn't cost that much.
+[30:02] It's not very expensive.
+[30:06] Now, I also gave you the version that uses mutexes.
+[30:10] That version is a little faster,
+[30:12] and it's a little faster in part because you're not guaranteed to
+[30:15] pass it around every time,
+[30:18] right?
+[30:18] Because the channel version is synchronous, it's guaranteed to
+[30:22] pass it around every single time.
+[30:23] and you never have the same go routine count twice in a row.
+[30:28] That costs you something, it turns out.
+[30:30] Context switching is a little bit expensive.
+[30:32] With the Mutex version,
+[30:34] probabilistically, sometimes the thing that's releasing the lock
+[30:37] is going to get it again right away.
+[30:39] So, there are fewer context switches in the Mutex version.
+[30:42] How many is random?
+[30:44] So, the data passing cost is really consistent.
+[30:49] The Mutex cost varies, It depends exactly on the order of
+[30:53] execution.
+[30:54] It's sort of between 0.4 and 0.5
+[30:56] seconds,
+[30:58] which for me is now starting to mean data passing is pretty darn
+[31:01] cheap.
+[31:03] Right? We're talking about 25 nanoseconds
+[31:08] extra-ish on average per operation.
+[31:12] not a problem,
+[31:18] not a problem.
+[31:22] Alright,
+[31:22] so passing ownership,
+[31:25] so instead of sharing the data and
+[31:27] trying to obtain exclusive ownership on it,
+[31:31] trying to pull exclusive ownership,
+[31:33] we're sending exclusive ownership to each other.
+[31:38] There are some advantages to this model.
+[31:40] You can't forget to acquire ownership.
+[31:42] You can forget to acquire mutual exclusion.
+[31:45] You can't forget to acquire ownership because you don't have
+[31:48] the data. You have to pull it off the
+[31:49] channel or you're not going to be able to do anything.
+[31:54] You can forget to release ownership.
+[31:56] The good news about that is that it's fail-stop.
+[31:58] If you forget to give up ownership of something that some
+[32:01] other Go routine is expecting, that Go routine will block
+[32:04] waiting for it forever. You're probably going to notice
+[32:06] that because some other Go routine is never going to do its
+[32:11] work.
+[32:12] Fail stop is an outstanding thing.
+[32:16] If you can convert Byzantine failures to fail stop failures
+[32:20] they're much easier to find because the system grinds to a
+[32:24] halt instead of being sort of kind of wrong.
+[32:28] It's way easier to tell my system doesn't work at all than
+[32:32] it is to tell suddenly I'm getting less revenue.
+[32:35] Why?
+[32:37] Right?
+[32:38] So the alternative to this is Byzantine failure,
+[32:41] you're always going to get an answer.
+[32:42] It just might be the wrong one.
+[32:44] And that's if you've experienced the joys of mutual exclusion,
+[32:47] you've probably written some programs that have Byzantine
+[32:49] failures.
+[32:53] However,
+[32:54] there are still some problems with passing ownership.
+[32:58] You can still forget to release ownership.
+[33:01] That does stop your program in its tracks.
+[33:03] That's not good.
+[33:05] You can actually still use the data after you release the
+[33:09] ownership of it because you have a copy laying around and you can
+[33:12] think the things you're doing to that copy will be seen by others
+[33:16] but maybe it never will.
+[33:20] That is a Byzantine failure.
+[33:22] Your Go routine thinks it's doing work that other Go
+[33:25] routines will see but they're never going to see it.
+[33:29] And that end up being slightly wrong.
+[33:31] So is there a way to fix that?
+[33:35] And the way to fix that is that rather than pass data between
+[33:38] multiple Go routines,
+[33:40] we're going to pass the functions that operate on the
+[33:43] data to one Go routine that holds it.
+[33:48] That Go routine can then execute those functions sequentially
+[33:51] within a single executing context.
+[33:54] Within that context it looks like a sequential program and
+[33:57] all of the usual rules of the compiler and the run language
+[34:00] runtime apply.
+[34:02] You don't have to be clever at all.
+[34:05] I'm a big fan of not being clever because the more clever I
+[34:09] am the more likely I am to get it wrong.
+[34:14] So if the data is local to and always owned by one go routine
+[34:19] you cannot make any shared data mistakes because there is no
+[34:24] shared data either in fact or in principle.
+[34:29] It makes the code much simpler to write correctly.
+[34:34] You have to build a little more scaffolding,
+[34:37] but once you build that scaffolding, it's all very
+[34:39] straightforward.
+[34:40] And you have to wrap your head around moving functions to a Go
+[34:42] routine instead of moving data to functions.
+[34:49] Questions so far?
+[34:55] All right, let's take a breath.
+[34:57] This is gonna be a relatively quick breath.
+[34:59] When that clock reads 1106,
+[35:03] so it's just a little more than two minutes, we'll reconvene.
+[35:05] Thank
+[35:17] you very
+[35:23] much.
+[35:35] We're taking good sides,
+[35:36] but I don't mind.
+[35:37] We'll meet in two hours.
+[35:38] We'll get some paid job first.
+[35:40] We'll meet in two hours.
+[35:42] We'll meet in two hours.
+[35:46] We'll meet in two hours.
+[35:49] We'll meet in two hours.
+[35:54] We'll meet in two hours.
+[35:56] We'll meet in two hours.
+[35:58] We'll meet in two hours.
+[36:00] We'll meet in two hours.
+[36:03] We'll meet in two hours. like a team as a specific.
+[36:06] I got those leaks, which is interesting.
+[36:10] Is she already paying that?
+[36:12] Yeah.
+[36:17] Is she already paying that? Is she already paying that? Is she
+[36:21] already paying that? Is she already paying that? Is she
+[36:21] already paying that? Is she already paying that? Is she
+[36:22] already paying that? Is she already paying that? Is she
+[36:23] already paying that?
+[36:23] Is she already paying that? Is she already paying that?
+[36:30] Is she already paying that?
+[36:37] I'm going to try to control the data.
+[36:43] I'm going to try to control the data.
+[36:45] I'm going to try to control the data.
+[36:47] I'm going to try to control the data.
+[36:49] I'm going to try to control the data.
+[36:53] I'm going to try to control the data.
+[36:55] I'm going to try to control the data.
+[36:56] I'm going to try to control the data.
+[36:58] I'm going to try to control the data.
+[36:59] I'm going to try to control the data.
+[37:02] I'm going to try to control the data.
+[37:24] Alright, so there are three more things that we need to talk
+[37:27] about, just sort of about underlying mechanisms in the
+[37:31] language that we need before we start talking about how to do
+[37:35] this. The first is that channels can
+[37:37] be directional. You can define a channel to both
+[37:39] send and receive.
+[37:41] You can define a channel on which you can only send or a
+[37:44] channel on which you can only receive.
+[37:46] Channels can also be closed.
+[37:49] So,
+[37:49] channels, when you create them, are open.
+[37:51] When you close them, there's a way to tell that it's closed and
+[37:54] disambiguate that between an open channel, which turns out to
+[37:57] be a pretty helpful idiom.
+[38:00] And the final thing is functions are first-class objects.
+[38:03] Now,
+[38:04] we talked about this in discussion section on Friday.
+[38:07] However,
+[38:08] this is important enough that I want to make sure you see it
+[38:10] twice.
+[38:11] Because if you've never seen this before and you've never
+[38:13] really used it before, it's actually a little bit weird.
+[38:16] This is basically functors from 280,
+[38:19] but actually supported by the language instead of cobbled
+[38:22] together using operator overloading.
+[38:25] So what is a first-class object in a language?
+[38:28] An object in a language is first class if they can be created,
+[38:32] if they can be destroyed dynamically while the program is
+[38:36] running. You can create new instances of
+[38:37] them,
+[38:38] you can destroy existing instances of them,
+[38:40] you can pass them as arguments,
+[38:42] and you can return them as values.
+[38:43] In C++,
+[38:45] functions are not first class because you can't create them.
+[38:49] Function objects are first class and you can use them as if they
+[38:52] were functions, but they're not exactly.
+[38:55] So it's kind of a little sort of scaffolding on top of it.
+[38:59] In Go,
+[39:00] functions can in fact be created dynamically on the fly.
+[39:06] And we're going to see some examples of that.
+[39:12] And when I will sometimes, I had an extra building there.
+[39:15] I will sometimes call these first class objects closures.
+[39:19] So a function that is created dynamically, I will sometimes
+[39:23] call it closure,
+[39:24] because it takes a set of scope and bottles it up,
+[39:28] right? The function that we're creating has access to both its
+[39:32] own local variables plus the local variables accessible to
+[39:36] the function that created it.
+[39:38] And because it has that, it creates this state closure.
+[39:41] Even if that function returns later,
+[39:44] all of its local variables will continue to exist and the The
+[39:47] language just does the magic to make that happen.
+[39:52] Alright, let's first talk about directional channels.
+[39:55] So,
+[39:56] we've seen how to declare a channel,
+[39:59] var ch is a variable of channel that passes type T,
+[40:04] so ch is a channel of type T.
+[40:07] We can also declare them to be directional,
+[40:09] where we restrict a particular channel variable,
+[40:13] not the underlying channel itself, but the channel variable
+[40:17] that refers to that underlying channel to be either receive
+[40:21] only or send only. Remember, if we assign one
+[40:24] channel to another,
+[40:25] they both internally point to the same thing.
+[40:28] Channels are represented by reference, not by value.
+[40:31] They're passed by value, but they're represented by
+[40:34] reference.
+[40:36] Now, that restriction is checked at compile time.
+[40:40] So, if you want to hand an endpoint of a channel to someone
+[40:43] and you want to make sure they only write to it and never read
+[40:46] to it, you can do that and the compiler will enforce it.
+[40:51] So, this is how you declare a restricted channel.
+[40:53] You can declare a read-only channel as arrow-chan-t,
+[40:58] which means read-only is a channel from which I can only
+[41:01] read.
+[41:03] You can write, you can declare the opposite direction,
+[41:05] write-only-chan-arrow-t.
+[41:08] This is a,
+[41:09] write-only is a channel to which I can only write t's.
+[41:13] or subsets of T.
+[41:19] Now, suppose that I create a base channel, base is
+[41:22] make-chain-T, that's a bi-directional channel.
+[41:25] All channels are bi-directional when you create them.
+[41:29] Then I have three variables,
+[41:31] ch,
+[41:32] which is a bi-directional channel,
+[41:34] in,
+[41:34] which is a write-only channel,
+[41:37] out, which is a read-only channel.
+[41:39] When I have those declarations, I can assign base to any of
+[41:43] those three because a bidirectional channel is at
+[41:47] least as capable as a unidirectional channel.
+[41:53] So those are all totally fine. However, I cannot assign the
+[41:56] value of in to the value of out because in is a write-only
+[42:01] channel and out is a read-only channel.
+[42:03] They're incompatible.
+[42:04] Likewise, I can't assign out to in.
+[42:06] I also can't assign the unidirectional channel back to
+[42:11] ch.
+[42:12] So I could say base equals make-chan,
+[42:14] ch equals base,
+[42:16] in equals ch.
+[42:17] I can't then say ch equals in because in is only,
+[42:22] even though that's where it came from you still can't do it.
+[42:25] So the compiler prevents you from being given a restricted
+[42:29] channel,
+[42:30] getting a less restricted channel,
+[42:33] or a differently restricted channel,
+[42:35] and it prevents you from, if you try and write to out,
+[42:39] the compiler will complain.
+[42:40] If you try and read from in, the compiler will complain.
+[42:44] Now this is just using, you don't have to do these things,
+[42:48] but it's like using const,
+[42:51] right?
+[42:51] It's using the compiler to help enforce your implied
+[42:55] understanding of the code that you're writing,
+[42:57] and preventing you from making an error.
+[43:03] You can also close a channel. When you create a channel, it's
+[43:06] open,
+[43:07] reading blocks until the value is available and the value is
+[43:10] then returned.
+[43:12] It's also possible to close a channel.
+[43:15] If you close a channel,
+[43:17] any further insertions will panic.
+[43:19] It is a runtime error.
+[43:21] It's also a runtime error to close the same channel twice,
+[43:23] I think.
+[43:27] So,
+[43:28] once you close the channel,
+[43:29] any further insertions will pan it.
+[43:31] So, you kind of have to have ownership of channels to be able
+[43:34] to close them.
+[43:39] If in the channel,
+[43:41] if you have a buffered channel,
+[43:44] reads will yield any values that are already in the channels.
+[43:46] For 491, we're not going to have buffered channels, you have to
+[43:49] worry about that. But any subsequent reads after
+[43:52] you close the channel yields the type 0 value.
+[43:57] So, for example, if you have a writer that's going to send 1,
+[44:01] and then 2, and then 3, and then 4 to a channel and then close
+[44:04] it, and you have a reader just looping in the channel reading
+[44:07] things out of it,
+[44:09] the reader will see 1, 2, 3, 4, 0, 0, 0, 0, and it will just
+[44:13] keep reading zeros forever.
+[44:15] Because you could always read from a closed channel, and it
+[44:18] always yields the zero value.
+[44:21] Question?
+[44:22] Was it part of like a read,
+[44:24] or my only channel?
+[44:26] How can you read from something that's never been?
+[44:31] So you're going to see why in a minute, because I'm going to use
+[44:34] it this way. But basically, if I'm the owner
+[44:36] of the data, and I want you to be able to send requests to me
+[44:39] and get responses,
+[44:41] I don't want anyone else to be able to read the requests,
+[44:43] because I'm the one who has to perform them.
+[44:46] So I'm gonna give everyone else a copy of the write-only request
+[44:50] channel.
+[44:51] But I have a copy that's double-ended.
+[44:54] So I'm gonna give you a copy that's write-only, but I keep
+[44:58] the copy that I can do both from.
+[45:00] So this is just,
+[45:01] the directionality of a channel is only describing the variable.
+[45:05] It doesn't describe the underlying channel.
+[45:07] The underlying channel is always inherently double-sided.
+[45:10] But some copies of it are restricted.
+[45:19] All right, so then,
+[45:21] you know, you could also stuff a zero in this channel, and that's
+[45:24] legal too.
+[45:25] So the next question is, how do you tell if a zero value is
+[45:27] real?
+[45:29] This is another thing we talked about on Friday in discussion.
+[45:31] If you haven't seen Friday's discussion, I do encourage you
+[45:33] to watch it really, really soon.
+[45:36] Because one of the things we introduced in Friday is
+[45:39] something called the value comma okay idiom,
+[45:42] or just value okay. And so when you read from a
+[45:46] channel you can read the value and also check to see if the
+[45:50] value is open,
+[45:51] if the channel is open.
+[45:54] If the channel is open it returns the next value that's
+[45:57] sent along the channel plus true.
+[46:00] If the channel is closed it returns the zero value of the
+[46:04] underlying type plus the value false.
+[46:09] So if I send 1 0 2 to a channel and then close it, and a reader
+[46:14] is just looping reading over the channel in comma okay,
+[46:18] it reads 1 true,
+[46:20] 0 true,
+[46:21] 2 true,
+[46:22] 0 false, 0 false, 0 false, 0 false, 0 false forever.
+[46:29] All right, if a channel might be closed at some point, you must
+[46:33] always protect the reads with comma okay and you want to do
+[46:38] something to handle the fact that the channel is closed.
+[46:42] Usually the something you do is just stop,
+[46:45] right?
+[46:46] So usually what I'm doing is I'm iterating over a channel reading
+[46:51] values out of it and when the channel is closed the iterator
+[46:54] just stops,
+[46:55] doesn't need to do anything anymore.
+[46:57] The way you write that code is using the range idiom.
+[47:03] So So, this is a for loop,
+[47:06] and range can be applied to anything that's a sequence of
+[47:10] objects.
+[47:11] You can apply it to a slice,
+[47:13] you can apply it to an array, you can apply it to a map, and
+[47:16] you can apply it to a channel, it just reads everything out of
+[47:18] it until it's done.
+[47:20] So if you range over a channel,
+[47:24] each time this returns and you execute the loop, that's because
+[47:28] you read a legitimate value out of the channel.
+[47:30] Once the channel is closed, you'll fall out of the loop and
+[47:33] you'll continue.
+[47:36] So we almost always use this version of it.
+[47:40] We almost never use the other version.
+[47:43] Questions about this stuff so far?
+[47:50] Yes?
+[47:54] Yeah, so for range channel, if there's nothing currently
+[47:57] available in the channel, there's no sender waiting to
+[47:59] send,
+[48:00] you wait until there is.
+[48:02] It's, yeah,
+[48:03] ranging over a channel is a blocking operation.
+[48:06] And actually, you can sort of think of any operation as
+[48:09] blocking because we think of all of our go routines as running
+[48:13] concurrently at some unknown speed.
+[48:16] The nice thing about this is that you're guaranteed to wait
+[48:19] until someone inserts,
+[48:21] right? So you do have some timing guarantees here.
+[48:26] All right,
+[48:27] closures.
+[48:29] So,
+[48:31] in C++ and in most languages like it,
+[48:33] all of the functions and methods you declare have to be at the
+[48:36] top level of the code,
+[48:38] right?
+[48:38] You can't really declare functions inside of other
+[48:40] functions.
+[48:41] No obvious way to do that.
+[48:44] However, in Go,
+[48:46] functions do not have to be top level things in lexical scope.
+[48:50] You can declare functions inside of other functions,
+[48:54] which is super helpful.
+[48:56] You can also return them as values.
+[49:00] Now, these nested functions follow the usual lexical scoping
+[49:03] rules that we learned about in x183 or engine 101, or wherever
+[49:07] you first started taking programming calls for a language
+[49:12] that's lexically scoped.
+[49:13] There are also some languages that are dynamically scoped, and
+[49:15] those are weird, and I don't want to talk about them.
+[49:19] But those nested functions follow lexical scoping rules So
+[49:22] those functions have access to their own variables, the
+[49:25] arguments you pass to them, and any variables you declare inside
+[49:28] of them.
+[49:29] They also have access to all of the variables of the enclosing
+[49:33] scope.
+[49:34] So they have access to the local variables of the function in
+[49:37] which they were declared,
+[49:39] and they have access to the arguments passed to that
+[49:41] function directly.
+[49:43] You don't have to pass them again.
+[49:47] So here's an example of a closure.
+[49:49] So,
+[49:50] adder takes an integer as an argument and then it returns as
+[49:56] its result a function that takes an integer and returns an
+[50:00] integer.
+[50:02] That's the result type. That's how you read that.
+[50:05] And what it's going to do is it's going to return a function
+[50:08] of an integer,
+[50:09] y,
+[50:10] that returns an integer and it's going to return the value x plus
+[50:13] y.
+[50:16] That thing,
+[50:17] that func yint return x plus y is called a closure because it
+[50:23] captures the static scope in which it exists.
+[50:30] That x means this x,
+[50:34] no matter what,
+[50:37] no matter when you use it. You can use it days from now.
+[50:40] It's still going to mean that copy of x.
+[50:44] Which is a little weird, because that means even though this
+[50:46] function is returned,
+[50:48] its arguments continue to exist,
+[50:50] because there are a reference to them, and the language just
+[50:52] handles that.
+[50:55] These are also sometimes called Lambda expressions.
+[50:58] So, if you've taken functional programming, a functional
+[51:01] programming course,
+[51:02] or maybe X490,
+[51:04] there are a couple of others,
+[51:06] you might have heard the phrase Lambda expression,
+[51:08] that's what this is, because in those languages,
+[51:10] instead of the word func, you have the symbol Lambda.
+[51:13] And if you've ever written in Scheme or Lisp,
+[51:17] you just spell out the word lambda when you're doing this
+[51:19] instead of the word func.
+[51:22] Now here's how you use this in function main.
+[51:26] I declare y equals adder phi.
+[51:29] So that is a function.
+[51:30] y is a function that takes integers as arguments and will
+[51:35] add its argument to the value phi.
+[51:39] So x,
+[51:41] I can define to be call the function y with the argument 4,
+[51:45] that's going to bind 4 to y,
+[51:48] 5 is always bound to x,
+[51:51] and when we print this out,
+[51:54] the value that we print out is 9.
+[51:58] Forever.
+[52:00] And if we call y of 10, we'll get 15,
+[52:03] we call y of 20, we'll get 25, and so on.
+[52:06] And we can create as many of these as we want.
+[52:09] We can also destroy them.
+[52:11] Once these go out of scope,
+[52:13] that reference goes away, and when there are no references
+[52:14] left to it, it will be destroyed.
+[52:19] This is a little weird if you haven't done it before, but it's
+[52:22] going to turn out to be enormously useful for you.
+[52:25] Yes?
+[52:27] Is closures similar to the idea of a functor?
+[52:30] Closures are similar to the idea of a functor, except that you
+[52:33] can use them anywhere that functions exist you don't need
+[52:36] to only do them as objects but they're very very similar.
+[52:40] No and that's why that's why when I wrote so it turns out the
+[52:44] current version of 280 I wrote when I wrote it and included
+[52:47] functors that's exactly why I added them because I wanted
+[52:50] students to see the ability to pass stateful functions around.
+[52:54] So you can create stateful functions that's what a functor
+[52:56] is it's a function object which has its own local state that
+[53:00] becomes a stateful object it's just that it doesn't have this
+[53:03] really cool lexical scoping thing.
+[53:05] You don't get that for free.
+[53:09] All right,
+[53:10] so now we're gonna put this all together.
+[53:13] So what we're going to do is we're going to create a new
+[53:16] abstract data type called a value.
+[53:20] And this abstract data type is going to have four operations
+[53:23] that apply to it.
+[53:25] We're going to make a value,
+[53:28] and a value is going to represent an integer.
+[53:31] And when we make a value,
+[53:34] we construct and return the integer value zero of type
+[53:38] value.
+[53:41] Value has three additional methods.
+[53:45] It's going to have the add method, which passed some
+[53:49] integer offset,
+[53:50] adds delta to the value. That can be positive or
+[53:53] negative, doesn't really matter.
+[53:54] So if we make a value and then call value add negative three,
+[53:58] the new value of the underlying stored value will be negative
+[54:01] three.
+[54:03] So this is stateful.
+[54:06] There's also just an accessor value.get
+[54:09] will return you the current value of the value.
+[54:13] And then we can say, well, I'm done with you.
+[54:16] So value.done destroys the value.
+[54:18] After that, you can't use it anymore.
+[54:21] And that's because when we make a value,
+[54:23] so this pattern should be pretty comfortable for you.
+[54:28] whenever you create something dynamically, you have a way of
+[54:31] destroying the thing dynamically.
+[54:34] Dynamic state shouldn't live forever.
+[54:37] Now, if we had this,
+[54:40] if we had this thing,
+[54:43] and I'm gonna show you how to build the thing,
+[54:45] let's assume we know how to build the thing.
+[54:48] If we had the thing,
+[54:50] this is what count looks like.
+[54:54] Pass it something of type value.
+[54:59] It's going to get the initial value,
+[55:01] wait, give me the initial value,
+[55:03] it'll print it,
+[55:04] and then for a million times,
+[55:07] it's going to add one to the underlying value.
+[55:11] Then when it's done, it's going to get the current value of
+[55:14] value and print it out and then it will return.
+[55:20] Notice what is not there.
+[55:23] There's no mention of channels,
+[55:25] there's no mention of synchronization, There's no
+[55:27] mention of any of it.
+[55:28] In fact, as far as this counter knows, it's the only counter
+[55:31] that has or will ever exist.
+[55:36] Pretty neat.
+[55:39] Main,
+[55:39] what does main have to do?
+[55:41] Well, the first thing it does is it constructs one of these
+[55:43] values.
+[55:45] And then the very next thing it does is it says, well,
+[55:47] defer val done.
+[55:48] I'm gonna talk about defer in a minute.
+[55:50] Once it's done that,
+[55:52] then it passes that thing to the counters.
+[55:55] Now, the counters don't know about being done, so this is a
+[55:58] little interesting thing we're going to talk about in a minute.
+[56:01] But it passes that value to the counter,
+[56:03] the counters, each of those four counters does its thing.
+[56:06] You'll notice that instead of go count,
+[56:08] we're wrapping count inside of a,
+[56:10] inside of its own closure.
+[56:12] We'll talk about why we're doing that in a minute,
+[56:14] and then just like before, we're going to wait for those four
+[56:17] counters that we spawned to finish.
+[56:21] When they finish, we're going to grab the value and print done.
+[56:26] Now, another thing to notice, the only synchronization in this
+[56:29] piece of code
+[56:31] is the synchronization we need to know when the counters are
+[56:33] done.
+[56:35] Counters don't need to tell us when they're done.
+[56:38] We know when the counter is done, it returns.
+[56:42] So we can use this mechanism, the same different, we're going
+[56:45] to create the done channel,
+[56:47] and then before we call count,
+[56:50] we're gonna call defer,
+[56:51] this closure,
+[56:53] write nil to done.
+[56:56] Cause now we don't need the value,
+[56:58] we have the value, we're holding it.
+[57:00] We just need to know that the counters are done.
+[57:03] And so we'll loop around waiting for four of those things to
+[57:05] happen.
+[57:09] Alright, let's talk about defer for a minute.
+[57:12] So,
+[57:13] go,
+[57:14] we've seen go already. a go is a function called
+[57:17] modifier.
+[57:18] So if you put go in front of a thing that is a function call,
+[57:22] instead of calling the function directly,
+[57:25] you'll spawn that function in a go routine and not wait for it
+[57:28] to finish.
+[57:29] That function can be a named thing that you've written,
+[57:33] it can be a closure that you've obtained from some other
+[57:37] function,
+[57:38] or it could be a lambda expression or a closure that you
+[57:41] just define in line. All three of those are function
+[57:44] calls.
+[57:45] Any one of them can be modified with the go keyword.
+[57:50] So anywhere you're calling a function,
+[57:52] you can instead call it with the go modifier and it'll just run.
+[57:57] The defer keyword is also a function call modifier.
+[58:01] So when you say defer function call,
+[58:04] instead of executing that call right away,
+[58:07] you evaluate its arguments and then schedule it to run when the
+[58:11] enclosing scope ends.
+[58:16] So it schedules the execution of the function to run after the
+[58:20] enclosing function returns.
+[58:22] It's not just the lexical scope, it's the enclosing function.
+[58:25] But before the caller resumes, I actually need to check that.
+[58:28] I might have just lied to you.
+[58:31] We'll see.
+[58:34] But defer basically says wait until I'm done with the thing
+[58:37] that I'm doing and then do this. And they call them in reverse
+[58:40] order. so it's FIFO,
+[58:41] it's LIFO,
+[58:42] last in, first out.
+[58:44] Now, if the enclosing function
+[58:47] in which you're calling defer is a go routine body,
+[58:51] so if that's inside of a go,
+[58:53] then the execution is scheduled after the body returns, but
+[58:58] before the enclosing go routine terminates.
+[59:01] So here,
+[59:02] this defer will run after this go routine's mains work
+[59:08] is done but before it exits.
+[59:14] This defer will happen here after mains work is done but
+[59:19] before mains go routine terminates.
+[59:28] All right.
+[59:30] Two important differences in this version of the code to the
+[59:34] prior to the channel based versions we've been seeing so
+[59:36] far.
+[59:37] The first is there is no synchronization in count at all.
+[59:41] As far as count is concerned it's just another function that
+[59:46] executes sequentially in in line with all of the other functions
+[59:50] that call it.
+[59:51] It has no idea it could be called asynchronous.
+[59:55] The only synchronization in main is waiting for those things to
+[59:59] complete.
+[1:00:00] It's now no longer passing values around because everyone
+[1:00:04] just has a reference to this abstract data type of value they
+[1:00:08] can just use directly because we've written this abstract data
+[1:00:12] type to be go routine safe in other words two or more go
+[1:00:17] routines can use a value at the same time and it won't be wrong
+[1:00:20] because we're going to build it in a particularly clever way
+[1:00:24] which means these versions are much simpler than the earlier
+[1:00:29] versions and there's an underlying principle
+[1:00:35] in this that the
+[1:00:38] the the concurrency idioms and go book talks about and in fact
+[1:00:41] this is also one of the go Collins which I'll post later
+[1:00:44] but the underlying principle is to avoid exposing concurrency in
+[1:00:48] your API so this thing is a concurrent object.
+[1:00:55] It can be used concurrently correctly.
+[1:00:59] It's go routine safe.
+[1:01:00] But it doesn't actually expose any synchronization at all.
+[1:01:04] The synchronization is hidden inside the implementation of
+[1:01:07] those methods.
+[1:01:10] So if we can avoid exposing the concurrency in our API,
+[1:01:14] all of the synchronization is inside the implementation.
+[1:01:18] We only have to get it right once.
+[1:01:20] The clients of this abstraction don't need to understand it at
+[1:01:23] all,
+[1:01:25] which simplifies their lives significantly.
+[1:01:31] Okay,
+[1:01:32] so how do we build the value?
+[1:01:34] So now the only thing left is how do we build value?
+[1:01:38] The way we,
+[1:01:39] the basic idea behind the value abstraction
+[1:01:42] is that it contains three things.
+[1:01:45] It contains the state we're trying to encode.
+[1:01:49] It also contains a request channel
+[1:01:54] and that request channel accepts functions
+[1:01:58] over pointers to the enclosed state.
+[1:02:02] So we're gonna pass the enclosed state by reference to the
+[1:02:05] functions that are supplied to us but they're going to execute
+[1:02:07] inside of our go routines context.
+[1:02:12] Then there's a response channel that's gonna yield the results
+[1:02:15] of those functions.
+[1:02:18] And so creating one of these values involves three
+[1:02:24] things.
+[1:02:25] First,
+[1:02:25] creating those two channels.
+[1:02:28] Second,
+[1:02:29] exporting those channels safely, which is why we have read-only
+[1:02:33] and write-only versions of them.
+[1:02:35] And third,
+[1:02:37] we're going to create a closure
+[1:02:40] that has access to that state that's created inside of the
+[1:02:44] thing to read,
+[1:02:46] apply,
+[1:02:47] and respond to requests
+[1:02:48] with the enclosed state or the confined state.
+[1:02:52] That's why this is called the confinement idiom.
+[1:02:54] The state is confined to that go routine.
+[1:02:57] And it's called lexical confinement because we are
+[1:02:59] taking advantage of lexical scope to make it happen.
+[1:03:03] So when I, one of the other things that I'll say, when I say
+[1:03:06] the word confinement,
+[1:03:08] I almost always mean lexical confinement, which is not the
+[1:03:12] same as the version of confinement that you will
+[1:03:14] sometimes see in idiomatic Go.
+[1:03:16] In idiomatic Go,
+[1:03:17] like the book that we have,
+[1:03:19] they also refer to confinement as ownership passing.
+[1:03:22] But there,
+[1:03:23] the object is confined to one place logically and by
+[1:03:26] convention.
+[1:03:27] Here, the object is confined to one place by the compiler,
+[1:03:31] which means if you try and screw up, the compiler will tell you
+[1:03:35] that you're wrong instead of having to run the program and
+[1:03:38] discover that you're wrong because you got lucky testing
+[1:03:40] it.
+[1:03:45] All right.
+[1:03:47] So to clients of the value, this is what they see.
+[1:03:53] So clients of the type value,
+[1:03:56] see a channel on which they can send requests.
+[1:04:01] And it's going to be requests of type request, I haven't given
+[1:04:04] you that type yet, but we'll see it in a minute.
+[1:04:06] And then it's going to have responses, which is a channel of
+[1:04:09] any. The responses can be anything,
+[1:04:12] so we're gonna have to do a little bit of cool stuff there.
+[1:04:16] So one of the things to notice about clients of the type,
+[1:04:19] clients can only write to requests and only read from
+[1:04:22] responses. No client can grab requests on
+[1:04:25] behalf of the value.
+[1:04:27] No client can stuff responses for some other client into the
+[1:04:31] value.
+[1:04:37] Now,
+[1:04:38] requests is a type, so the type request is the type
+[1:04:43] functions that accept pointers to integer as their arguments
+[1:04:48] and return anything as their value.
+[1:04:51] There has to be a return value, but its type could be anything.
+[1:04:56] So, a request is a function of an instance of the confined type
+[1:05:01] int passed by reference because we might want to modify that
+[1:05:06] thing, the confined state,
+[1:05:08] returning a value of any type.
+[1:05:12] All right,
+[1:05:13] so what is this any business?
+[1:05:16] So any, it turns out, is syntactic sugar in the language
+[1:05:19] that represents something called the empty interface.
+[1:05:25] So there's a little bit more Go you need to know.
+[1:05:28] You don't really need to know it, you just need to know the
+[1:05:31] idea of it.
+[1:05:34] So interfaces in Go are a way of describing
+[1:05:38] requirements of types.
+[1:05:42] So an interface lists zero or more methods
+[1:05:46] and if a type T supports all of the interface foo's methods,
+[1:05:53] then an instance of T can be used anywhere where a foo is
+[1:05:57] expected.
+[1:05:59] And it's possible that many types can satisfy the same
+[1:06:02] interface.
+[1:06:04] One of the most common types in the Go standard library is the
+[1:06:08] stringer interface.
+[1:06:10] Pretty much everything in the Go standard library or in the
+[1:06:13] language itself has a method called string,
+[1:06:17] which will return a string representation of the underlying
+[1:06:21] type.
+[1:06:23] So if you want something, if you create a new type and you want
+[1:06:26] to pass it to format printf with the the V value then the way
+[1:06:31] that works is it just calls the string method on the type and
+[1:06:34] then it prints it out which means you have to have a string
+[1:06:37] method and if you pass something in that to that format printf
+[1:06:42] thing that doesn't have a string method the compiler will
+[1:06:46] complain because the compiler doesn't that know how to convert
+[1:06:49] it to a string.
+[1:06:54] The type any is the empty interface.
+[1:06:57] It's an interface with zero methods.
+[1:07:02] Now, every type has at least no methods.
+[1:07:08] Int,
+[1:07:09] there are no methods on int.
+[1:07:11] There are no methods on string. Well, actually, there are lots
+[1:07:14] of methods on string, but different problem.
+[1:07:16] So,
+[1:07:18] every type satisfies this interface and the compiler
+[1:07:23] allows you to use any value where an empty interface is
+[1:07:26] expected and the keyword any is called
+[1:07:32] syntactic sugar for this.
+[1:07:34] Syntactic sugar is something the language provides that's a
+[1:07:37] shorter way of saying some longer thing.
+[1:07:41] So, whenever you see any,
+[1:07:42] what you should think is the empty interface and every type
+[1:07:46] satisfies the empty interface.
+[1:07:48] Now unfortunately once you have a type,
+[1:07:50] a thing of type any it's not very useful because it doesn't
+[1:07:53] do anything.
+[1:07:56] What type is it? I don't know, it's anything.
+[1:07:59] So you need to uncover the real dynamic type to use the object
+[1:08:04] of type any.
+[1:08:05] Now one of the other cool things about Go is it stores type with
+[1:08:09] objects.
+[1:08:10] So every object knows its own type all the
+[1:08:15] And that's true even with the built-in type.
+[1:08:18] So it doesn't mean object capital O.
+[1:08:20] Every element in a Go program knows its own type.
+[1:08:26] And the type is stored with the object
+[1:08:28] and there's this thing called a type assertion
+[1:08:31] that says I believe this thing of type any is really this other
+[1:08:36] type.
+[1:08:37] And that's something that's checked dynamically at runtime.
+[1:08:42] Now there's nothing you can do about that because the compiler
+[1:08:44] can't know what the type is.
+[1:08:46] It doesn't,
+[1:08:46] because the Go doesn't do type inference like some other
+[1:08:48] languages do. So, that's just sort of what we
+[1:08:50] get.
+[1:08:53] So,
+[1:08:53] if I declare an integer,
+[1:08:55] initialize its value to three,
+[1:08:57] and then I declare a generic variable of type any.
+[1:09:01] I could assign my int to generic.
+[1:09:03] Totally fine, no problem.
+[1:09:05] So, now generic is really an integer of type three, but the
+[1:09:09] compiler has no idea that that's true.
+[1:09:12] So if I declare another variable an int,
+[1:09:15] and I try and add that generic to that int,
+[1:09:18] the compile will complain because it's a type mismatch.
+[1:09:21] You can't add things of type any to an integer.
+[1:09:29] So instead what you do is you have to you have to tell the
+[1:09:31] compiler I believe this thing is this type, and then the compiler
+[1:09:35] will write code that will check it at runtime.
+[1:09:39] So now I have an integer,
+[1:09:41] I assign 3 to it, I have this generic variable,
+[1:09:44] generic equals my int,
+[1:09:45] now I have two other variables,
+[1:09:48] an int which is a type integer,
+[1:09:50] and a string which is a type string,
+[1:09:54] and then if I say assign generic,
+[1:09:57] assuming that it is an integer, so when I say dot parentheses
+[1:10:01] type,
+[1:10:02] that says I think generic is an integer,
+[1:10:05] please check for me.
+[1:10:07] Well That's true,
+[1:10:09] generic is an integer,
+[1:10:10] so the runtime will allow that assignment to happen.
+[1:10:14] The compiler will compile both of these things,
+[1:10:17] but the runtime checks them.
+[1:10:21] So this one, when you execute this line of code,
+[1:10:23] it will work and then an int will be the integer 3.
+[1:10:27] The compiler will compile this line of code.
+[1:10:30] When that line of code executes,
+[1:10:34] this will panic because the runtime will look at generic
+[1:10:38] and try and interpret it as a string,
+[1:10:41] find that it's really an integer,
+[1:10:42] and throw up its hands because it has no idea what to do.
+[1:10:46] That's a runtime error.
+[1:10:49] Fail stop.
+[1:10:51] Runtime,
+[1:10:51] so there's,
+[1:10:53] I sort of think of the hierarchy of errors.
+[1:10:56] My favorite kind of mistakes are things that can be checked at
+[1:10:59] compile time.
+[1:11:00] Because then the compiler can tell me,
+[1:11:02] hey, idiot, you did this.
+[1:11:04] I do that all the time.
+[1:11:07] My second favorite kind of error is fail-stop dynamic errors.
+[1:11:12] That's a fail-stop dynamic error.
+[1:11:14] No, it's not a string.
+[1:11:15] Stop it.
+[1:11:17] My least favorite kind of error is a Byzantine dynamic error,
+[1:11:22] where I get the wrong answer and it just keeps going.
+[1:11:25] Those are painful. I don't like those.
+[1:11:32] Okay,
+[1:11:33] let's see how far we get.
+[1:11:38] So how do we create one of these things?
+[1:11:40] So make value return something of type value.
+[1:11:45] So I'm going to have a result locally that's just going to
+[1:11:49] return that.
+[1:11:50] So declare an instance of that.
+[1:11:52] The instance of that as declared has its zero value initialized
+[1:11:56] and it turns out the zero value for channels is nil.
+[1:11:59] you can neither send to or receive from the nil value of a
+[1:12:02] channel.
+[1:12:04] It's a dynamic, it's an error.
+[1:12:06] Runtime.
+[1:12:09] Now I'm gonna create two channels.
+[1:12:11] These channels are local to make value.
+[1:12:16] The local variable requests is going to be a channel of type
+[1:12:20] request.
+[1:12:22] We've already seen what that type is.
+[1:12:24] Unbuffered,
+[1:12:24] no capacity.
+[1:12:26] And the local variable responses is going to be a channel of type
+[1:12:29] any with no capacity.
+[1:12:33] Then I'm going to assign these local variables that reference
+[1:12:38] the channel to the thing I'm eventually going to export.
+[1:12:42] So result requests equals requests,
+[1:12:45] result responses equals responses.
+[1:12:49] Then I'm gonna create a go routine.
+[1:12:52] That go routine, and I'm gonna show you the body of it later,
+[1:12:56] is eventually just gonna sit around looping over requests,
+[1:13:00] applying them to the local state,
+[1:13:02] and returning the answer.
+[1:13:04] It's going to also have the local state inside of it.
+[1:13:08] And then once I launch that Go routine that will do the work of
+[1:13:12] the value,
+[1:13:13] I can return the result.
+[1:13:18] So this closure, this function, this Go routine,
+[1:13:23] or lambda expression, this anonymous closure has access to
+[1:13:27] the bi-directional versions of the channels.
+[1:13:30] So, inside of this anonymous function,
+[1:13:33] I can read from requests and write to responses.
+[1:13:40] But the caller's access to requests and responses are
+[1:13:43] restricted.
+[1:13:44] So, the thing that's calling make value only has a version of
+[1:13:48] requests that it can write to and only has a version of
+[1:13:51] responses that it can read from.
+[1:13:54] So that's just a way of preventing you from making an
+[1:13:57] error in one of the other methods.
+[1:14:00] So again,
+[1:14:01] this is one of those,
+[1:14:02] and this might be one of the things
+[1:14:07] that you chafe at a little bit.
+[1:14:10] Why do I have to make them bidirectional when I could've
+[1:14:13] just had them?
+[1:14:16] Why?
+[1:14:20] I mean, I have to write extra code.
+[1:14:24] Why are you making me type?
+[1:14:25] Or my AI agent type, as the case may be.
+[1:14:28] Yes?
+[1:14:30] I don't know where you're fitting.
+[1:14:33] So you have local reasoning,
+[1:14:35] and more importantly,
+[1:14:37] when you write one of these methods, what can't you do?
+[1:14:55] Let me go back to the type.
+[1:14:59] What can't you do in those methods?
+[1:15:24] Well, it's not so much that you can't forget to acquire.
+[1:15:27] it's that you can't mistakenly read a request off of the
+[1:15:32] request channel
+[1:15:34] because there should be only one thing reading requests it's the
+[1:15:36] thing that owns the state you also can't mistakenly spend a
+[1:15:40] response to the response channel the only thing that should be
+[1:15:43] sending responses to the response channel are the thing
+[1:15:46] that owns the state now you might say well Well, Professor
+[1:15:49] Noble,
+[1:15:50] I'm not gonna do that.
+[1:15:53] And yeah, you probably won't.
+[1:15:56] But if you do,
+[1:15:58] what catches the error?
+[1:16:04] The compiler.
+[1:16:06] My favorite kind of bug.
+[1:16:08] In fact, now I don't even have to compile the dang thing.
+[1:16:11] My ID just tells me right up front that I'm doing something
+[1:16:14] wrong.
+[1:16:17] which means now okay so
+[1:16:20] I'm gonna end I'm gonna end with another rant
+[1:16:25] even though I'm way behind I still think it's worth talking
+[1:16:29] about
+[1:16:30] purpose of a CS
+[1:16:36] degree CS curriculum discipline of thought tools and techniques
+[1:16:41] to account for the fact that we're bad at the first thing,
+[1:16:43] right?
+[1:16:44] So we're learning how to think carefully about complex things
+[1:16:47] and we're also learning some tools and techniques to account
+[1:16:50] for the fact that we're bad at thinking about the first thing
+[1:16:52] and in fact to allow us to not have to think about some of
+[1:16:55] those things.
+[1:16:57] The closer you can bring an error,
+[1:17:00] I know you don't understand it and I don't either,
+[1:17:02] that's the point,
+[1:17:03] the closer you can bring errors to the commission of the error,
+[1:17:08] so in other words the closer you can bring detection I know I
+[1:17:13] have made this mistake to the making of the mistake the easier
+[1:17:18] it is to fix because at the moment you're making the mistake
+[1:17:21] that's the most context about that line of code your brain is
+[1:17:25] ever going to have so if your IDE will tell you as you're
+[1:17:31] writing the line of code yo this is gonna compile.
+[1:17:35] Then you can fix it right there.
+[1:17:38] That's why IDEs are great.
+[1:17:41] Now if you write the code and then you compile it 20 minutes
+[1:17:45] later,
+[1:17:46] you still have most of the context, not all of it, but most
+[1:17:49] of it.
+[1:17:50] If you write the code, compile it, and run it a week from now,
+[1:17:53] and the dynamic type assertion fails, then you have to go back,
+[1:17:57] what the heck was I writing?
+[1:17:58] The longer it takes between creating the mistake and
+[1:18:03] discovering the mistake,
+[1:18:04] the harder it is to fix.
+[1:18:08] I do not want your mistakes to be hard to fix because I can't
+[1:18:13] make them impossible.
+[1:18:15] I want them at least to be easy to fix.
+[1:18:19] Now our discipline of thought will make those mistakes less
+[1:18:22] common,
+[1:18:24] right? That's helpful,
+[1:18:28] but we're never gonna be perfect.
+[1:18:30] So when we can write our code in ways that help us find mistakes
+[1:18:34] faster,
+[1:18:35] that is an advantage to us. And that's the answer to your
+[1:18:39] question earlier. Why am I not just using a Mutex?
+[1:18:42] Because the Mutex errors are Byzantine run time.
+[1:18:48] Those are the hardest ones to find and therefore they are
+[1:18:51] hardest to fix because they're the longest ago when we made
+[1:18:55] them.
+[1:18:58] So part of the first like two weeks or three weeks of this
+[1:19:01] course is giving you tools to not pull all-nighters in 491.
+[1:19:07] If you are pulling all-nighters to get your projects to work in
+[1:19:10] 491 we have failed you and I do not want that and I will see you
+[1:19:15] next time.
